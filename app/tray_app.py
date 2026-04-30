@@ -98,6 +98,13 @@ class TrayApp(QObject):
         log_action.triggered.connect(self._open_log)
         self._menu.addAction(log_action)
 
+        import sys
+        if sys.platform != "darwin":
+            self._menu.addSeparator()
+            about_action = QAction("About LarkSync", self._menu)
+            about_action.triggered.connect(self._open_about)
+            self._menu.addAction(about_action)
+
         self._menu.addSeparator()
 
         quit_action = QAction("Quit LarkSync", self._menu)
@@ -255,13 +262,19 @@ class TrayApp(QObject):
         )
 
     def _open_settings(self):
-        dlg = SettingsDialog(self.config)
+        dlg = SettingsDialog(self.config, tray_app=self)
         dlg.exec()
         self._refresh_menu()  # schedule may have changed
 
     def _open_log(self):
         viewer = LogViewer(str(APP_DIR / "sync.log"))
         viewer.exec()
+
+    def _open_about(self):
+        import sys
+        if sys.platform != "darwin":
+            from app.win_menu import _show_about
+            _show_about()
 
     def _quit(self):
         if self._syncing and self._thread:

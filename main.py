@@ -17,7 +17,19 @@ from PyQt6.QtCore    import Qt, QEvent
 from app.config_manager import ConfigManager, LOCK_FILE
 from app.setup_wizard   import SetupWizard
 from app.tray_app       import TrayApp
-from app.mac_menu_bar   import build_menu_bar, _open_settings
+
+if sys.platform == "darwin":
+    from app.mac_menu_bar import build_menu_bar, _open_settings
+else:
+    # Fallbacks for Windows
+    def build_menu_bar(config, tray_app):
+        return None
+        
+    def _open_settings(config, tray_app):
+        from app.settings_dialog import SettingsDialog
+        dlg = SettingsDialog(config, tray_app=tray_app)
+        dlg.exec()
+        tray_app._refresh_menu()
 
 
 class LarkSyncApp(QApplication):
@@ -73,8 +85,9 @@ def main():
     tray = TrayApp(config, app)
     app._tray_ref = tray                    # expose for dock-reopen handler
 
-    # ── macOS native menu bar ─────────────────────────────────────
-    _menu_bar = build_menu_bar(config, tray)  # noqa: F841 — keep reference alive
+    # ── macOS native menu bar (if on macOS) ───────────────────────
+    if sys.platform == "darwin":
+        _menu_bar = build_menu_bar(config, tray)  # noqa: F841 — keep reference alive
 
     tray.show_ready(first_time=just_completed_setup)
 

@@ -97,9 +97,29 @@ class ConfigManager:
 
     def set_launch_at_login(self, enabled: bool) -> None:
         self.set("launch_at_login", enabled)
+        app_path   = _get_app_executable()
+        
+        import sys
+        if sys.platform == "win32":
+            import winreg
+            key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+            try:
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE)
+                if enabled and app_path:
+                    winreg.SetValueEx(key, "LarkSync", 0, winreg.REG_SZ, f'"{app_path}"')
+                else:
+                    try:
+                        winreg.DeleteValue(key, "LarkSync")
+                    except OSError:
+                        pass
+                winreg.CloseKey(key)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Failed to set Windows startup: {e}")
+            return
+
         plist_dir  = Path.home() / "Library" / "LaunchAgents"
         plist_path = plist_dir / "com.larksync.agent.plist"
-        app_path   = _get_app_executable()
 
         if enabled and app_path:
             plist_dir.mkdir(parents=True, exist_ok=True)
@@ -127,6 +147,8 @@ def _get_app_executable():  # -> Optional[str]
     """Return path to the running executable (works inside .app bundle too)."""
     import sys
     exe = sys.executable
+    if getattr(sys, 'frozen', False):
+        return exe
     # Inside py2app bundle: .../LarkSync.app/Contents/MacOS/LarkSync
     if "LarkSync.app" in exe:
         return exe
