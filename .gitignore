@@ -1,0 +1,47 @@
+# Build artifacts
+build/
+dist/
+*.egg-info/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# py2app
+.eggs/
+
+# Credentials & tokens — NEVER commit these
+sync/lark_token.json
+sync/google_token.pkl
+sync/token.pkl
+*.pkl
+lark_token.json
+google_token.json
+credentials.json
+app_config.json
+
+# macOS
+.DS_Store
+*.DS_Store
+
+# Logs & state
+sync.log
+sync_state.json
+*.log
+*.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Assets (user-specific — keep icon source out of repo)
+assets/icon.iconset/
+assets/icon_1024.png
+# Keep: assets/icon.icns  ← committed so build works without source PNG
+
+# Python virtual environments
+venv/
+.venv/
+env/
