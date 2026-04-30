@@ -117,9 +117,10 @@ def _setting_row(label: str, sub: str, widget: QWidget) -> QHBoxLayout:
 # ── Main dialog ──────────────────────────────────────────────────────
 
 class SettingsDialog(QDialog):
-    def __init__(self, config: ConfigManager, parent=None):
-        super().__init__(parent)
+    def __init__(self, config: ConfigManager, tray_app=None, parent=None):
+        super().__init__(parent)  # parent must be QWidget or None
         self.config = config
+        self._tray_app = tray_app  # stored separately, not as Qt parent
         self.setWindowTitle("LarkSync Settings")
         self.setFixedSize(520, 560)
         self.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
@@ -188,22 +189,88 @@ class SettingsDialog(QDialog):
         btn_bar.setStyleSheet(
             f"background: {btn_bg}; border-top: 1px solid {btn_sep};"
         )
-        btn_layout = QHBoxLayout(btn_bar)
-        btn_layout.setContentsMargins(20, 12, 20, 12)
+        btn_layout = QVBoxLayout(btn_bar)
+        btn_layout.setContentsMargins(20, 10, 20, 10)
+        btn_layout.setSpacing(6)
 
-        cancel = self._make_btn("Cancel", primary=False)
-        cancel.clicked.connect(self.reject)
-        save = self._make_btn("Save Changes", primary=True)
-        save.clicked.connect(self._save)
+        # Status label (Syncing... / empty)
+        self._status_lbl = QLabel("")
+        self._status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._status_lbl.setStyleSheet(
+            "color: #007AFF; font-size: 12px; font-weight: 500;"
+            "background: transparent; border: none;"
+        )
+        self._status_lbl.setFixedHeight(16)
+        btn_layout.addWidget(self._status_lbl)
 
-        btn_layout.addStretch()
-        btn_layout.addWidget(cancel)
-        btn_layout.addSpacing(8)
-        btn_layout.addWidget(save)
+        # Buttons row
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+
+        self._cancel_btn = self._make_btn("Cancel", primary=False)
+        self._cancel_btn.clicked.connect(self.reject)
+        self._cancel_btn.setEnabled(False)
+        self._set_cancel_dimmed(True)
+
+        self._sync_btn = self._make_btn("Sync Now", primary=True)
+        self._sync_btn.clicked.connect(self._on_sync_btn_clicked)
+
+        btn_row.addStretch()
+        btn_row.addWidget(self._cancel_btn)
+        btn_row.addSpacing(4)
+        btn_row.addWidget(self._sync_btn)
+        btn_layout.addLayout(btn_row)
+
         root.addWidget(btn_bar)
 
         # ── Footer ────────────────────────────────────────────────────
         root.addWidget(self._footer())
+
+        # Connect change signals after all widgets are built
+        self._connect_change_signals()
+
+    # ── Button helpers ────────────────────────────────────────────────
+
+    def _set_cancel_dimmed(self, dimmed: bool):
+        if dimmed:
+            fg  = _c("#cccccc", "#555555")
+            bdr = _c("#e8e8e8", "#3a3a3c")
+            bg  = _c("#f5f5f7", "#2a2a2c")
+            self._cancel_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: {bg}; color: {fg};
+                    border: 1px solid {bdr}; border-radius: 8px;
+                    padding: 0 20px; font-size: 13px; font-weight: 500;
+                }}
+            """)
+            self._cancel_btn.setCursor(Qt.CursorShape.ArrowCursor)
+        else:
+            bg  = _c("#ffffff", "#3a3a3c")
+            bdr = _c("#d0d0d0", "#555555")
+            fg  = _c("#333333", "#e0e0e0")
+            self._cancel_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: {bg}; color: {fg};
+                    border: 1px solid {bdr}; border-radius: 8px;
+                    padding: 0 20px; font-size: 13px; font-weight: 500;
+                }}
+                QPushButton:hover {{ background: {_c('#f0f0f0','#4a4a4c')}; }}
+                QPushButton:pressed {{ background: {_c('#e0e0e0','#555555')}; }}
+            """)
+            self._cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def _on_input_changed(self):
+        self._cancel_btn.setEnabled(True)
+        self._set_cancel_dimmed(False)
+
+    def _connect_change_signals(self):
+        for w in [self._lark_id_edit, self._lark_sec_edit,
+                  self._folder_edit, self._notify_edit]:
+            w.textChanged.connect(self._on_input_changed)
+        for w in [self._sched_combo, self._day_combo, self._hour_combo,
+                  self._sync_mode_combo, self._conflict_combo]:
+            w.currentIndexChanged.connect(self._on_input_changed)
+        self._launch_cb.stateChanged.connect(self._on_input_changed)
 
     # ── Button factory ────────────────────────────────────────────────
 
@@ -508,11 +575,11 @@ class SettingsDialog(QDialog):
         layout.addStretch()
         return w
 
-    # ── Save ──────────────────────────────────────────────────────────
+    # ── Save / Sync ───────────────────────────────────────────────────
 
-    def _save(self):
+    def _collect_updates(self) -> dict:
         sched_map = {0:"weekly", 1:"daily", 2:"manual"}
-        updates = {
+        return {
             "launch_at_login":       self._launch_cb.isChecked(),
             "schedule":              sched_map[self._sched_combo.currentIndex()],
             "schedule_day":          self._day_combo.currentText(),
@@ -524,12 +591,71 @@ class SettingsDialog(QDialog):
             "gdrive_root_folder_id": self._folder_edit.text().strip(),
             "lark_notify_chat_id":   self._notify_edit.text().strip(),
         }
-        self.config.update(updates)
 
+    def _apply_updates(self, updates: dict):
+        self.config.update(updates)
         if updates["launch_at_login"] != self.config.get("launch_at_login"):
             self.config.set_launch_at_login(updates["launch_at_login"])
 
-        self.accept()
+    def _on_sync_btn_clicked(self):
+        # If currently syncing → cancel
+        if self._sync_btn.text() == "Cancel Sync":
+            if self._tray_app and hasattr(self._tray_app, '_cancel_sync'):
+                self._tray_app._cancel_sync()
+            self._restore_sync_btn()
+            self._status_lbl.setText("")
+            return
+
+        # Save config
+        updates = self._collect_updates()
+        self._apply_updates(updates)
+
+        # Switch button to Cancel Sync + show status
+        self._sync_btn.setText("Cancel Sync")
+        self._sync_btn.setStyleSheet("""
+            QPushButton {
+                background: #FF3B30; color: white; border: none;
+                border-radius: 8px; padding: 0 24px;
+                font-size: 13px; font-weight: 600;
+            }
+            QPushButton:hover  { background: #DD2A20; }
+            QPushButton:pressed { background: #BB2010; }
+        """)
+        self._status_lbl.setText("⏳  Syncing…")
+        self._cancel_btn.setEnabled(False)
+        self._set_cancel_dimmed(True)
+
+        # Trigger sync
+        if self._tray_app and hasattr(self._tray_app, '_start_sync'):
+            try:
+                self._tray_app._start_sync()
+                self._watch_sync_done()
+            except Exception as e:
+                import logging
+                logging.error(f"Failed to start sync: {e}")
+                self._restore_sync_btn()
+
+    def _watch_sync_done(self):
+        from PyQt6.QtCore import QTimer
+        def _check():
+            if not self._tray_app or not getattr(self._tray_app, '_syncing', False):
+                self._restore_sync_btn()
+            else:
+                QTimer.singleShot(1000, _check)
+        QTimer.singleShot(1000, _check)
+
+    def _restore_sync_btn(self):
+        self._sync_btn.setText("Sync Now")
+        self._sync_btn.setStyleSheet("""
+            QPushButton {
+                background: #007AFF; color: white; border: none;
+                border-radius: 8px; padding: 0 24px;
+                font-size: 13px; font-weight: 600;
+            }
+            QPushButton:hover  { background: #0066DD; }
+            QPushButton:pressed { background: #0055CC; }
+        """)
+        self._status_lbl.setText("✓  Sync complete")
 
     # ── Footer ────────────────────────────────────────────────────────
 
