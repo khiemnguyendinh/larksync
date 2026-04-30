@@ -1,7 +1,7 @@
 # ─────────────────────────────────────────────────────────────────────
 # GitHub Actions — Build LarkSync for Windows
 # Runs on a free Windows VM provided by GitHub.
-# Triggers: manual (workflow_dispatch) or push to main branch.
+# Triggers: manual (workflow_dispatch) or push to 'windows' branch.
 # Output: LarkSync-Windows.zip artifact (downloadable from Actions tab)
 # ─────────────────────────────────────────────────────────────────────
 
@@ -10,7 +10,7 @@ name: Build LarkSync (Windows)
 on:
   workflow_dispatch:          # Manual trigger from GitHub UI
   push:
-    branches: [main]
+    branches: [windows]
     paths-ignore:
       - '*.md'
       - 'docs/**'
