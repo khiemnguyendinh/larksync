@@ -17,7 +17,9 @@
       "Bash(kill 25534)",
       "Bash(git init *)",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(gh auth *)",
+      "Bash(git config *)"
     ]
   }
 }

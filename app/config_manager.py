@@ -123,7 +123,7 @@ class ConfigManager:
                 plist_path.unlink(missing_ok=True)
 
 
-def _get_app_executable() -> str | None:
+def _get_app_executable():  # -> Optional[str]
     """Return path to the running executable (works inside .app bundle too)."""
     import sys
     exe = sys.executable
