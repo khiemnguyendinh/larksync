@@ -19,7 +19,7 @@ A lightweight macOS menu bar app for seamless file synchronization.
 
 > *Screenshot placeholder — add a screenshot of the menu bar and settings window here.*
 
-![LarkSync menu bar screenshot](assets/screenshot.png)
+[![LarkSync menu bar screenshot](assets/screenshot.png)](https://scontent.fhan16-1.fna.fbcdn.net/v/t39.30808-6/687033147_10244740273987439_9105046292471522159_n.jpg)
 
 ---
 
