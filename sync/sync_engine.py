@@ -267,7 +267,7 @@ class SyncEngine:
         "/base/":   "bitable",
     }
 
-    def _resolve_url_file(self, content: bytes, name: str) -> tuple[str, str] | None:
+    def _resolve_url_file(self, content, name):  # -> Optional[Tuple[str, str]]
         """
         Parse a Windows .url shortcut file, extract a Lark doc token and type.
         Returns (doc_token, lark_type) or None if the URL is not a recognisable Lark doc.

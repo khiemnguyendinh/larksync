@@ -24,7 +24,7 @@ _TOKEN_FILE  = _APP_DIR / "lark_token.json"
 _CONFIG_FILE = _APP_DIR / "app_config.json"
 
 
-def _get_app_credentials() -> tuple[str, str]:
+def _get_app_credentials():  # -> Tuple[str, str]
     """Read Lark app_id / app_secret from the saved app_config.json."""
     if _CONFIG_FILE.exists():
         with open(_CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -207,7 +207,7 @@ def save_token(token_data: dict):
         json.dump(token_data, f, indent=2)
 
 
-def load_token() -> dict | None:
+def load_token():  # -> Optional[dict]
     if _TOKEN_FILE.exists():
         with open(_TOKEN_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
