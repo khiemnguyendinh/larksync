@@ -189,6 +189,23 @@ class SettingsDialog(QDialog):
         layout.addWidget(self._day_time_row)
         layout.addWidget(_divider())
 
+        # Sync mode
+        layout.addWidget(_label("Sync Mode", bold=True, size=12))
+        self._sync_mode_combo = _combo([
+            "Incremental (only new & modified since last sync)",
+            "Full sync (all files every time)"
+        ])
+        self._sync_mode_combo.setCurrentIndex(
+            0 if self.config.get("sync_mode", "incremental") == "incremental" else 1
+        )
+        layout.addWidget(self._sync_mode_combo)
+        layout.addWidget(_label(
+            "Incremental sync is faster — only files created or modified after "
+            "the last sync will be processed.",
+            color="#999", size=10
+        ))
+        layout.addWidget(_divider())
+
         # Conflict
         layout.addWidget(_label("If file already exists", bold=True, size=12))
         self._conflict_combo = _combo([
@@ -382,6 +399,7 @@ class SettingsDialog(QDialog):
             "schedule":           sched_map[self._sched_combo.currentIndex()],
             "schedule_day":       self._day_combo.currentText(),
             "schedule_hour":      self._hour_combo.currentIndex(),
+            "sync_mode":          "incremental" if self._sync_mode_combo.currentIndex()==0 else "full",
             "conflict":           "overwrite" if self._conflict_combo.currentIndex()==0 else "skip",
             "lark_app_id":        self._lark_id_edit.text().strip(),
             "lark_app_secret":    self._lark_sec_edit.text().strip(),

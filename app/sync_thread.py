@@ -73,6 +73,16 @@ class SyncThread(QThread):
                 token_path       = str(GOOGLE_TOKEN),
             )
 
+            # Compute last sync timestamp for incremental mode
+            last_sync_ts = None
+            last_sync_str = self.config.get("last_sync")
+            if last_sync_str:
+                try:
+                    from datetime import datetime
+                    last_sync_ts = datetime.fromisoformat(last_sync_str).timestamp()
+                except (ValueError, TypeError):
+                    pass
+
             engine = SyncEngine(
                 lark                  = lark,
                 gdrive                = gdrive,
@@ -81,6 +91,8 @@ class SyncThread(QThread):
                 progress_cb           = self._on_progress,
                 cancel_fn             = lambda: self._cancel,
                 max_file_mb           = self.config.get("max_file_mb", 100),
+                sync_mode             = self.config.get("sync_mode", "incremental"),
+                last_sync_ts          = last_sync_ts,
             )
 
             stats = engine.run()

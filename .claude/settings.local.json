@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cp /Users/macintoshhd/Documents/lark_gdrive_sync/google_client.py /Users/macintoshhd/Documents/LarkSyncApp/sync/google_client.py)",
+      "Bash(cp /Users/macintoshhd/Documents/lark_gdrive_sync/lark_notifier.py /Users/macintoshhd/Documents/LarkSyncApp/sync/lark_notifier.py)",
+      "Bash(python3 -c ' *)",
+      "Bash(bash build.sh)",
+      "Bash(echo \"EXIT_CODE=$?\")",
+      "Bash(/Users/macintoshhd/Documents/LarkSyncApp/dist/LarkSync.app/Contents/MacOS/LarkSync)",
+      "Bash(bash /Users/macintoshhd/Documents/LarkSyncApp/build.sh)",
+      "Bash(plutil -extract CFBundleIconFile xml1 -o - /Users/macintoshhd/Documents/LarkSyncApp/dist/LarkSync.app/Contents/Info.plist)",
+      "Bash(echo \"PID=$! — Bấm Sync Now trong vòng 10 giây rồi đợi kết quả\")",
+      "Bash(kill -0 25384)",
+      "Bash(kill 25384)",
+      "Bash(python3 main.py)",
+      "Bash(echo \"Dev PID=$! — hãy bấm Sync Now ngay bây giờ\")",
+      "Bash(kill 25534)",
+      "Bash(git init *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
+    ]
+  }
+}

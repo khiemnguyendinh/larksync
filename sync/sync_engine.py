@@ -28,6 +28,8 @@ class SyncEngine:
         progress_cb=None,
         cancel_fn=None,
         max_file_mb: int = 0,
+        sync_mode: str = "full",
+        last_sync_ts: Optional[float] = None,
     ):
         self.lark = lark
         self.gdrive = gdrive
@@ -36,6 +38,8 @@ class SyncEngine:
         self.progress_cb  = progress_cb   # callable(msg, completed, total)
         self.cancel_fn    = cancel_fn     # callable() → bool
         self.max_file_mb  = max_file_mb   # 0 = no limit
+        self.sync_mode    = sync_mode     # "incremental" | "full"
+        self.last_sync_ts = last_sync_ts  # epoch seconds of last sync (for incremental)
 
         # State structure:
         # {
@@ -62,9 +66,25 @@ class SyncEngine:
     # Main sync entry
     # ------------------------------------------------------------------
 
+    def _is_modified_since_last_sync(self, item: dict) -> bool:
+        """Check if item was created or modified after last sync timestamp."""
+        if self.sync_mode != "incremental" or self.last_sync_ts is None:
+            return True  # full sync → always process
+
+        # Lark API returns 'modified_time' or 'created_time' as epoch seconds
+        modified = item.get("modified_time", 0)
+        created  = item.get("created_time", 0)
+        latest   = max(modified, created)
+
+        if latest <= 0:
+            return True  # no timestamp info → sync it to be safe
+
+        return latest > self.last_sync_ts
+
     def run(self):
         """Run the full sync job."""
-        logger.info("=== START SYNC: Lark Drive → Google Drive ===")
+        mode_label = "INCREMENTAL" if self.sync_mode == "incremental" else "FULL"
+        logger.info(f"=== START SYNC ({mode_label}): Lark Drive → Google Drive ===")
 
         stats = {"folders": 0, "files_synced": 0, "files_skipped": 0, "errors": 0}
 
@@ -82,9 +102,20 @@ class SyncEngine:
 
             try:
                 if item["type"] == "folder":
+                    # Always sync folders so the structure is complete
                     self._sync_folder(item)
                     stats["folders"] += 1
                 else:
+                    # Incremental: skip files not modified since last sync
+                    if not self._is_modified_since_last_sync(item):
+                        stats["files_skipped"] += 1
+                        if self.progress_cb:
+                            self.progress_cb(
+                                f"[{idx + 1}/{total}] ⏭ {item.get('name', '')}",
+                                idx + 1, total,
+                            )
+                        continue
+
                     synced = self._sync_file(item)
                     if synced:
                         stats["files_synced"] += 1

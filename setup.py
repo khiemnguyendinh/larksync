@@ -24,7 +24,7 @@ OPTIONS = {
                 "CFBundleShortVersionString": VERSION,
                 "NSHighResolutionCapable":    True,
                 "LSUIElement":                False,  # show in Dock + native menu bar
-                "NSHumanReadableCopyright":   "© 2026 Kstudy Academy",
+                "NSHumanReadableCopyright":   "© 2026 Khiem Nguyen Dinh - Kstudy Academy. All rights reserved.",
             },
             "packages": [
                 "PyQt6",

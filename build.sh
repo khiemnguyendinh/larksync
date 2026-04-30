@@ -101,8 +101,11 @@ fi
 
 # ── 6. Post-build size optimisation ──────────────────────────────────
 echo "▸ Trimming bundle (removing unused files)..."
-PYLIB="${APP_PATH}/Contents/Resources/lib/python3.13"
+# Detect Python version inside bundle
+PYVER=$(ls "${APP_PATH}/Contents/Resources/lib/" | grep -E '^python3\.' | head -1)
+PYLIB="${APP_PATH}/Contents/Resources/lib/${PYVER}"
 QT6="${PYLIB}/PyQt6/Qt6"
+echo "  Detected: ${PYVER}"
 
 # googleapiclient discovery cache — the single biggest win (~95 MB)
 rm -rf "${PYLIB}/googleapiclient/discovery_cache"

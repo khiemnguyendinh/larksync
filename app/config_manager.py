@@ -27,7 +27,8 @@ DEFAULTS: dict = {
     "schedule_day":         "Monday",
     "schedule_hour":        8,
     "schedule_minute":      0,
-    "conflict":             "overwrite", # overwrite | skip
+    "sync_mode":            "incremental", # incremental | full
+    "conflict":             "overwrite",   # overwrite | skip
     "max_file_mb":          100,
     "launch_at_login":      False,
     "show_progress":        True,
