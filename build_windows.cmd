@@ -1,15 +1,25 @@
 @echo off
-echo Building LarkSync for Windows...
+echo ===================================================
+echo   Building LarkSync for Windows (Portable .exe)
+echo ===================================================
+echo.
 
-:: Install required tools if they don't exist
-python -m pip install pyinstaller
+:: Install PyInstaller if not present
+python -m pip install pyinstaller >nul 2>&1
 
 :: Clean old builds
 if exist build rmdir /s /q build
 if exist dist rmdir /s /q dist
 if exist LarkSync.spec del /q LarkSync.spec
 
-echo Running PyInstaller...
+echo Building portable .exe...
 python build_windows.py
 
-echo Build complete! Check the dist folder.
+echo.
+echo ===================================================
+echo   Build Complete!
+echo   Output: dist\LarkSync.exe
+echo.
+echo   This is a portable file - just copy and run!
+echo ===================================================
+pause

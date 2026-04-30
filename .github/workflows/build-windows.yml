@@ -2,7 +2,9 @@
 # GitHub Actions — Build LarkSync for Windows
 # Runs on a free Windows VM provided by GitHub.
 # Triggers: manual (workflow_dispatch) or push to 'windows' branch.
-# Output: LarkSync-Windows.zip artifact (downloadable from Actions tab)
+# Output:
+#   - LarkSync-Windows-Portable.zip  (single .exe, no install needed)
+#   - LarkSync-Windows-Full.zip      (folder with all DLLs, faster startup)
 # ─────────────────────────────────────────────────────────────────────
 
 name: Build LarkSync (Windows)
@@ -57,8 +59,19 @@ jobs:
               print('No icon source found, building without icon')
           "
 
-      # ── 5. Build with PyInstaller ────────────────────────────────
-      - name: Build executable
+      # ── 5. Common PyInstaller arguments ──────────────────────────
+      - name: Define build args
+        id: args
+        shell: bash
+        run: |
+          ICON_ARG=""
+          if [ -f "assets/icon.ico" ]; then
+            ICON_ARG="--icon=assets/icon.ico"
+          fi
+          echo "icon_arg=$ICON_ARG" >> "$GITHUB_OUTPUT"
+
+      # ── 6a. Build PORTABLE single-file .exe ──────────────────────
+      - name: Build portable exe (--onefile)
         run: |
           python -c "
           import PyInstaller.__main__
@@ -71,6 +84,7 @@ jobs:
           PyInstaller.__main__.run([
               'main.py',
               '--name=LarkSync',
+              '--onefile',
               '--windowed',
               *icon_arg,
               '--add-data=assets;assets',
@@ -106,11 +120,75 @@ jobs:
           ])
           "
 
-      # ── 6. Package output ────────────────────────────────────────
-      - name: Upload artifact
+      # ── 6b. Copy portable exe to a separate folder ───────────────
+      - name: Prepare portable artifact
+        run: |
+          mkdir -p dist\portable
+          copy dist\LarkSync.exe dist\portable\LarkSync.exe
+
+      # ── 6c. Build FULL folder-based distribution ─────────────────
+      - name: Build full distribution (--onedir)
+        run: |
+          python -c "
+          import PyInstaller.__main__
+          import os
+
+          icon_arg = []
+          if os.path.exists('assets/icon.ico'):
+              icon_arg = ['--icon=assets/icon.ico']
+
+          PyInstaller.__main__.run([
+              'main.py',
+              '--name=LarkSync',
+              '--onedir',
+              '--windowed',
+              *icon_arg,
+              '--add-data=assets;assets',
+              '--hidden-import=PyQt6',
+              '--hidden-import=PyQt6.QtCore',
+              '--hidden-import=PyQt6.QtGui',
+              '--hidden-import=PyQt6.QtWidgets',
+              '--hidden-import=google.oauth2',
+              '--hidden-import=google.auth',
+              '--hidden-import=google.auth.transport.requests',
+              '--hidden-import=googleapiclient.discovery',
+              '--hidden-import=googleapiclient.http',
+              '--hidden-import=google_auth_oauthlib.flow',
+              '--hidden-import=requests',
+              '--hidden-import=app',
+              '--hidden-import=app.config_manager',
+              '--hidden-import=app.setup_wizard',
+              '--hidden-import=app.tray_app',
+              '--hidden-import=app.settings_dialog',
+              '--hidden-import=app.log_viewer',
+              '--hidden-import=app.sync_thread',
+              '--hidden-import=app.win_menu',
+              '--hidden-import=sync',
+              '--hidden-import=sync.lark_auth',
+              '--hidden-import=sync.lark_client',
+              '--hidden-import=sync.google_client',
+              '--hidden-import=sync.sync_engine',
+              '--hidden-import=sync.lark_notifier',
+              '--collect-submodules=app',
+              '--collect-submodules=sync',
+              '--clean',
+              '-y',
+          ])
+          "
+
+      # ── 7. Upload artifacts ──────────────────────────────────────
+      - name: Upload portable exe
         uses: actions/upload-artifact@v4
         with:
-          name: LarkSync-Windows
+          name: LarkSync-Windows-Portable
+          path: dist/portable/LarkSync.exe
+          retention-days: 90
+          compression-level: 9
+
+      - name: Upload full distribution
+        uses: actions/upload-artifact@v4
+        with:
+          name: LarkSync-Windows-Full
           path: dist/LarkSync/
-          retention-days: 30
+          retention-days: 90
           compression-level: 9
