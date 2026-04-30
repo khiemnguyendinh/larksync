@@ -76,7 +76,7 @@ A lightweight desktop app for seamless file synchronization — available for **
 
 ## 🪟 Windows — Quick Install
 
-1. Go to **[GitHub Actions → Build LarkSync (Windows)](https://github.com/khiemnguyendinh/larksync/actions/workflows/build-windows.yml)**.
+1. Go to **[GitHub Actions → Build LarkSync (Windows)](https://github.com/khiemnguyendinh/larksync/actions/workflows/build-windows.yml)**. or download here **[Download .exe](https://github.com/khiemnguyendinh/larksync/actions/runs/25170828294/artifacts/6732374205)**
 2. Click the latest successful build run (green ✅).
 3. Scroll to the **Artifacts** section → Download **LarkSync-Windows.zip**.
 4. Extract the ZIP → Run **`LarkSync.exe`**.
