@@ -71,9 +71,15 @@ class SyncEngine:
         if self.sync_mode != "incremental" or self.last_sync_ts is None:
             return True  # full sync → always process
 
-        # Lark API returns 'modified_time' or 'created_time' as epoch seconds
-        modified = item.get("modified_time", 0)
-        created  = item.get("created_time", 0)
+        # Lark API may return timestamps as str or int — normalise to float
+        def _ts(val):
+            try:
+                return float(val)
+            except (TypeError, ValueError):
+                return 0.0
+
+        modified = _ts(item.get("modified_time", 0))
+        created  = _ts(item.get("created_time", 0))
         latest   = max(modified, created)
 
         if latest <= 0:
@@ -122,7 +128,7 @@ class SyncEngine:
                     else:
                         stats["files_skipped"] += 1
             except Exception as e:
-                logger.error(f"Error syncing '{item.get('name')}' ({item.get('token')}): {e}")
+                logger.exception(f"Error syncing '{item.get('name')}' ({item.get('token')}): {e}")
                 stats["errors"] += 1
 
             if self.progress_cb:

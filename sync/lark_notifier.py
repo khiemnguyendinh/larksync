@@ -225,10 +225,12 @@ class LarkNotifier:
                 json=payload,
                 timeout=15,
             )
-            resp.raise_for_status()
             data = resp.json()
             if data.get("code") != 0:
-                logger.error(f"Lark notify failed: {data}")
+                logger.error(
+                    f"Lark notify failed: code={data.get('code')} "
+                    f"msg={data.get('msg')} detail={data}"
+                )
             else:
                 logger.info("Lark notification gửi thành công.")
         except Exception as e:

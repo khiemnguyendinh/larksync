@@ -133,7 +133,16 @@ def authorize_async(on_success=None, on_error=None):
     threading.Thread(target=_run, daemon=True).start()
 
 
+def get_app_access_token() -> str:
+    """Public alias — used by LarkNotifier to send bot messages."""
+    return _get_app_access_token_impl()
+
+
 def _get_app_access_token() -> str:
+    return _get_app_access_token_impl()
+
+
+def _get_app_access_token_impl() -> str:
     app_id, app_secret = _get_app_credentials()
     resp = requests.post(
         f"{LARK_BASE_URL}/auth/v3/app_access_token/internal",

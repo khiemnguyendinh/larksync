@@ -173,10 +173,10 @@ class SyncThread(QThread):
         if not chat_id:
             return
         try:
-            from sync.lark_auth    import get_valid_access_token
+            from sync.lark_auth    import get_app_access_token
             from sync.lark_notifier import LarkNotifier
             notifier = LarkNotifier(
-                access_token_fn = get_valid_access_token,
+                access_token_fn = get_app_access_token,
                 chat_id         = chat_id,
             )
             if stats.get("errors", 0) > 0:
