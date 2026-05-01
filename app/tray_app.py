@@ -32,6 +32,7 @@ class TrayApp(QObject):
         self.app     = app
         self._thread: SyncThread | None = None
         self._syncing = False
+        self._settings_dlg = None  # singleton guard
 
         # ── Tray icon ─────────────────────────────────────────────────
         self._tray = QSystemTrayIcon()
@@ -243,7 +244,10 @@ class TrayApp(QObject):
 
     def _on_tray_clicked(self, reason):
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
-            self._menu.popup(self._tray.geometry().topLeft())
+            if self._menu.isVisible():
+                self._menu.hide()
+            else:
+                self._menu.popup(self._tray.geometry().topLeft())
 
     def show_ready(self, first_time: bool = False):
         """Show an orientation notification so users can find the menu bar icon."""
@@ -262,8 +266,14 @@ class TrayApp(QObject):
         )
 
     def _open_settings(self):
-        dlg = SettingsDialog(self.config, tray_app=self)
-        dlg.exec()
+        # If dialog is already open, bring it to front instead of opening a duplicate
+        if self._settings_dlg is not None and self._settings_dlg.isVisible():
+            self._settings_dlg.raise_()
+            self._settings_dlg.activateWindow()
+            return
+        self._settings_dlg = SettingsDialog(self.config, tray_app=self)
+        self._settings_dlg.exec()
+        self._settings_dlg = None
         self._refresh_menu()  # schedule may have changed
 
     def _open_log(self):
