@@ -34,6 +34,8 @@ A lightweight desktop app for seamless file synchronization — available for **
 - **Google Drive upload** — Uploads to any target folder in your Google Drive via OAuth 2.0
 - **Format conversion** — Lark-native files (Docs, Sheets, Mindnotes) exported to Google-compatible formats (Docx, Xlsx, PDF)
 - **Incremental sync** — Only sync new and modified files since last run (faster)
+- **Smart Settings UX** — Sync Now button saves + triggers sync; Cancel Sync mid-flight; singleton window guard
+- **Secure credential fields** — All API keys and IDs hidden by default with a 👁 eye toggle
 - **Setup Wizard** — Guided first-time configuration for both Lark and Google credentials
 - **Sync log** — In-app log viewer for reviewing sync history and diagnosing errors
 - **Lark group notification** — Get notified in your Lark group chat after each sync
@@ -206,11 +208,13 @@ larksync/
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [User Guide](docs/USER_GUIDE.md) | Installation, setup, and usage instructions (EN + VI) |
-| [Terms of Use](docs/TERMS_OF_USE.md) | Terms governing use of LarkSync (EN + VI) |
-| [Disclaimer](docs/DISCLAIMER.md) | Liability disclaimer and warranty information (EN + VI) |
+| Document | Audience | Description |
+|----------|----------|-------------|
+| [User Guide](docs/USER_GUIDE.md) | End users | Installation, setup, and usage instructions (EN + VI) |
+| [Architecture](docs/ARCHITECTURE.md) | Developers | System design, module reference, data flows, build pipeline |
+| [Developer Guide](docs/DEVELOPER_GUIDE.md) | Developers | Dev environment, patterns, how-to guides, pitfalls |
+| [Terms of Use](docs/TERMS_OF_USE.md) | End users | Terms governing use of LarkSync (EN + VI) |
+| [Disclaimer](docs/DISCLAIMER.md) | End users | Liability disclaimer and warranty information (EN + VI) |
 
 ---
 

@@ -12,8 +12,9 @@
 3. [Creating a Lark App / Tạo Lark App](#creating-a-lark-app)
 4. [Getting Google OAuth Credentials / Lấy Google OAuth Credentials](#google-credentials)
 5. [Using the Menu Bar / Sử Dụng Menu Bar](#menu-bar)
-6. [Schedule Configuration / Cấu Hình Lịch Đồng Bộ](#schedule)
-7. [Troubleshooting / Xử Lý Sự Cố](#troubleshooting)
+6. [Settings Window / Cửa Sổ Cài Đặt](#settings)
+7. [Schedule Configuration / Cấu Hình Lịch Đồng Bộ](#schedule)
+8. [Troubleshooting / Xử Lý Sự Cố](#troubleshooting)
 
 ---
 
@@ -159,75 +160,108 @@ Lần đầu khởi động, **Setup Wizard** sẽ tự động mở ra. Hoàn t
 
 ### English
 
-Click the LarkSync icon in your menu bar to open the menu:
+**Click once** on the LarkSync icon (⟳) in your menu bar to open the menu. **Click again** on the icon to close it.
 
 | Menu Item | Description |
 |-----------|-------------|
 | **Sync Now** | Start a manual sync immediately |
-| **Last Synced:** `<time>` | Shows the timestamp of the last successful sync |
-| **Next Sync:** `<time>` | Shows the next scheduled sync time (if scheduled) |
-| **View Log** | Opens the sync log window to review activity and errors |
-| **Settings** | Opens the Settings window to update credentials, folders, and schedule |
+| **Cancel Sync** | Appears during an active sync — click to stop it |
+| **Last sync:** `<time>` | Shows the timestamp of the last successful sync |
+| **Next sync:** `<time>` | Shows the next scheduled sync time (if scheduled) |
+| **Settings…** | Opens the Settings window |
+| **View Log…** | Opens the sync log window to review activity and errors |
 | **Quit LarkSync** | Exits the application |
 
 The menu bar icon changes state:
-- **Static icon** — Idle / waiting
-- **Spinning icon** — Sync in progress
-- **Warning badge** — Last sync had errors (check View Log)
+- **Solid icon** — Idle / waiting
+- **Dimmed icon** — Sync in progress
 
 ### Tiếng Việt
 
-Nhấp vào biểu tượng LarkSync trên menu bar để mở menu:
+**Nhấp một lần** vào biểu tượng LarkSync (⟳) trên menu bar để mở menu. **Nhấp lần nữa** vào biểu tượng để đóng menu.
 
 | Mục Menu | Mô Tả |
 |----------|-------|
 | **Sync Now** | Bắt đầu đồng bộ thủ công ngay lập tức |
-| **Last Synced:** `<thời gian>` | Hiển thị thời điểm đồng bộ thành công gần nhất |
-| **Next Sync:** `<thời gian>` | Hiển thị thời điểm đồng bộ tiếp theo (nếu đã lên lịch) |
-| **View Log** | Mở cửa sổ nhật ký để xem hoạt động và lỗi |
-| **Settings** | Mở cửa sổ Cài đặt để cập nhật thông tin xác thực, thư mục và lịch |
+| **Cancel Sync** | Xuất hiện khi đang đồng bộ — nhấp để dừng |
+| **Last sync:** `<thời gian>` | Hiển thị thời điểm đồng bộ thành công gần nhất |
+| **Next sync:** `<thời gian>` | Hiển thị thời điểm đồng bộ tiếp theo (nếu đã lên lịch) |
+| **Settings…** | Mở cửa sổ Cài đặt |
+| **View Log…** | Mở cửa sổ nhật ký để xem hoạt động và lỗi |
 | **Quit LarkSync** | Thoát ứng dụng |
 
 Biểu tượng menu bar thay đổi trạng thái:
-- **Biểu tượng tĩnh** — Đang chờ
-- **Biểu tượng xoay** — Đang đồng bộ
-- **Dấu cảnh báo** — Lần đồng bộ gần nhất có lỗi (kiểm tra View Log)
+- **Biểu tượng đậm** — Đang chờ
+- **Biểu tượng mờ** — Đang đồng bộ
 
 ---
 
-## 6. Schedule Configuration / Cấu Hình Lịch Đồng Bộ {#schedule}
+## 6. Settings Window / Cửa Sổ Cài Đặt {#settings}
 
 ### English
 
-Open **Settings → Schedule** to configure automatic syncing.
+Open **Settings…** from the menu bar menu (or press **⌘,** on macOS).
+
+**Smart button behaviour:**
+- **Cancel** button starts dimmed. It activates as soon as you change any field, allowing you to close without saving.
+- **Sync Now** saves your settings and immediately starts a sync.
+- While syncing, the button turns red and reads **Cancel Sync**. Click it to stop the sync.
+- After sync completes, a "✓ Sync complete" status appears at the bottom.
+
+> If Settings is already open, clicking "Settings…" again will bring the existing window to the front rather than opening a second one.
+
+**Security — hidden credential fields:**
+All sensitive fields (App ID, App Secret, Google Drive Folder ID, Lark Chat ID) are hidden by default. Click the 👁 icon on the right side of each field to reveal its value.
+
+---
+
+## 7. Schedule Configuration / Cấu Hình Lịch Đồng Bộ {#schedule}
+
+### English
+
+Open **Settings → General** to configure automatic syncing.
 
 | Mode | Behavior |
 |------|----------|
-| **Manual** | Sync only when you click "Sync Now" |
-| **Daily** | Syncs once per day at the specified time |
-| **Weekly** | Syncs once per week on the specified day and time |
+| **Every week (recommended)** | Syncs once per week on the specified day and time |
+| **Every day** | Syncs once per day at the specified time |
+| **Manual only** | Sync only when you click "Sync Now" |
 
-- Changes to the schedule take effect immediately after clicking **Save**.
+- Changes take effect immediately after clicking **Sync Now** or closing Settings.
 - The app must be running (menu bar icon visible) for scheduled syncs to occur. LarkSync does not run as a background service when quit.
 - To start LarkSync automatically at login, go to **Settings → General** and enable **Launch at Login**.
 
 ### Tiếng Việt
 
-Mở **Settings → Schedule** để cấu hình đồng bộ tự động.
+Mở **Settings → General** để cấu hình đồng bộ tự động.
+
+**Hành vi nút bấm thông minh:**
+- Nút **Cancel** ban đầu bị mờ. Nó sẽ sáng lên khi bạn thay đổi bất kỳ trường nào, cho phép đóng mà không lưu.
+- Nút **Sync Now** lưu cài đặt và bắt đầu đồng bộ ngay lập tức.
+- Trong khi đồng bộ, nút chuyển sang màu đỏ và hiện **Cancel Sync**. Nhấp để dừng đồng bộ.
+- Sau khi hoàn tất, trạng thái "✓ Sync complete" hiện ở dưới cùng.
+
+> Nếu Settings đang mở, nhấp "Settings…" lần nữa sẽ đưa cửa sổ hiện tại lên trước thay vì mở thêm cửa sổ mới.
+
+**Bảo mật — trường thông tin bị ẩn:**
+Tất cả trường nhạy cảm (App ID, App Secret, Google Drive Folder ID, Lark Chat ID) được ẩn theo mặc định. Nhấp biểu tượng 👁 ở bên phải mỗi trường để hiện giá trị.
+
+---
+
+### Sync Schedule
 
 | Chế Độ | Hành Vi |
 |--------|---------|
-| **Manual** | Chỉ đồng bộ khi bạn nhấn "Sync Now" |
-| **Daily** | Đồng bộ một lần mỗi ngày vào giờ đã chọn |
-| **Weekly** | Đồng bộ một lần mỗi tuần vào ngày và giờ đã chọn |
+| **Every week** | Đồng bộ một lần mỗi tuần vào ngày và giờ đã chọn |
+| **Every day** | Đồng bộ một lần mỗi ngày vào giờ đã chọn |
+| **Manual only** | Chỉ đồng bộ khi bạn nhấn "Sync Now" |
 
-- Thay đổi lịch có hiệu lực ngay sau khi nhấn **Save**.
 - App phải đang chạy (biểu tượng hiển thị trên menu bar) để lịch đồng bộ hoạt động. LarkSync không chạy nền khi đã thoát.
 - Để tự động khởi động LarkSync khi đăng nhập, vào **Settings → General** và bật **Launch at Login**.
 
 ---
 
-## 7. Troubleshooting / Xử Lý Sự Cố {#troubleshooting}
+## 8. Troubleshooting / Xử Lý Sự Cố {#troubleshooting}
 
 ### English
 
