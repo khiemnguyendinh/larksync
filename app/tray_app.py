@@ -32,6 +32,7 @@ class TrayApp(QObject):
         self.app     = app
         self._thread: SyncThread | None = None
         self._syncing = False
+        self._settings_dlg = None  # singleton guard
 
         # ── Tray icon ─────────────────────────────────────────────────
         self._tray = QSystemTrayIcon()
@@ -243,7 +244,10 @@ class TrayApp(QObject):
 
     def _on_tray_clicked(self, reason):
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
-            self._menu.popup(self._tray.geometry().topLeft())
+            if self._menu.isVisible():
+                self._menu.hide()
+            else:
+                self._menu.popup(self._tray.geometry().topLeft())
 
     def show_ready(self, first_time: bool = False):
         """Show an orientation notification so users can find the menu bar icon."""
@@ -262,8 +266,14 @@ class TrayApp(QObject):
         )
 
     def _open_settings(self):
-        dlg = SettingsDialog(self.config, tray_app=self)
-        dlg.exec()
+        # If dialog is already open, bring it to front instead of opening a duplicate
+        if self._settings_dlg is not None and self._settings_dlg.isVisible():
+            self._settings_dlg.raise_()
+            self._settings_dlg.activateWindow()
+            return
+        self._settings_dlg = SettingsDialog(self.config, tray_app=self)
+        self._settings_dlg.exec()
+        self._settings_dlg = None
         self._refresh_menu()  # schedule may have changed
 
     def _open_log(self):
@@ -285,21 +295,69 @@ class TrayApp(QObject):
     # ── Icon generation ───────────────────────────────────────────────
 
     def _make_icon(self, idle: bool = True) -> QIcon:
-        size = 22
-        px   = QPixmap(size, size)
+        """
+        Draw a menu bar icon that works on macOS Retina + light/dark mode.
+        Uses black strokes on transparent background — macOS treats these
+        as template images and inverts automatically in dark mode.
+        """
+        # Use 2x resolution for Retina displays
+        logical = 18
+        scale   = 2
+        size    = logical * scale
+
+        px = QPixmap(size, size)
+        px.setDevicePixelRatio(scale)
         px.fill(Qt.GlobalColor.transparent)
+
         p = QPainter(px)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        color = QColor("#34C759") if idle else QColor("#FFD60A")
+
+        from PyQt6.QtGui import QPen
+        # Black strokes → macOS inverts to white in dark menu bar
+        pen_color = QColor(0, 0, 0, 220) if idle else QColor(0, 0, 0, 140)
+        pen = QPen(pen_color)
+        pen.setWidthF(1.6)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        p.setPen(pen)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+
+        # Draw circular arrows (sync icon)
+        from PyQt6.QtCore import QRectF
+        import math
+        cx, cy, r = logical / 2, logical / 2, 5.5
+
+        # Arc — 270° sweep leaving a gap for arrowhead
+        p.drawArc(
+            QRectF(cx - r, cy - r, r * 2, r * 2),
+            30 * 16,    # start angle (Qt uses 1/16 degree)
+            300 * 16    # span angle
+        )
+
+        # Arrowhead at end of arc
+        end_angle = math.radians(30)
+        ax = cx + r * math.cos(end_angle)
+        ay = cy - r * math.sin(end_angle)
+        from PyQt6.QtCore import QPointF
+        from PyQt6.QtGui  import QPolygonF
+        head_size = 2.8
+        tip   = QPointF(ax, ay)
+        left  = QPointF(ax - head_size * math.cos(end_angle + math.radians(150)),
+                        ay + head_size * math.sin(end_angle + math.radians(150)))
+        right = QPointF(ax - head_size * math.cos(end_angle - math.radians(150)),
+                        ay + head_size * math.sin(end_angle - math.radians(150)))
+        p.setBrush(pen_color)
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(color)
-        p.drawEllipse(3, 3, 16, 16)
-        p.setPen(QColor("white"))
-        f = QFont("-apple-system", 10, QFont.Weight.Bold)
-        p.setFont(f)
-        p.drawText(px.rect(), Qt.AlignmentFlag.AlignCenter, "⟳")
+        p.drawPolygon(QPolygonF([tip, left, right]))
+
         p.end()
-        return QIcon(px)
+
+        icon = QIcon(px)
+        # Mark as template so macOS auto-inverts for dark menu bar
+        try:
+            icon.setIsMask(True)
+        except AttributeError:
+            pass
+        return icon
 
     # ── Helpers ───────────────────────────────────────────────────────
 

@@ -75,10 +75,8 @@ def build_menu_bar(config, tray_app) -> QMenuBar:
 
 
 def _open_settings(config, tray_app):
-    from app.settings_dialog import SettingsDialog
-    dlg = SettingsDialog(config, tray_app=tray_app)
-    dlg.exec()
-    tray_app._refresh_menu()
+    # Delegate to tray_app so the singleton guard is enforced
+    tray_app._open_settings()
 
 
 def _show_about():
