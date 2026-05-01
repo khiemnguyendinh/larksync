@@ -114,6 +114,62 @@ def _setting_row(label: str, sub: str, widget: QWidget) -> QHBoxLayout:
     return row
 
 
+# ── Secure input field (password mode + eye toggle) ──────────────────
+
+class _SecretField(QWidget):
+    """
+    A QLineEdit that defaults to password-echo mode with a 👁 button on the
+    right that toggles visibility.  Exposes the same .text() / .setText() /
+    .textChanged API as a plain QLineEdit so it can be used as a drop-in.
+    """
+
+    def __init__(self, placeholder: str = ""):
+        super().__init__()
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+
+        self._edit = _input(placeholder, password=True)
+
+        bdr   = _c("#d0d0d0", "#555555")
+        bg    = _c("#f5f5f7", "#2c2c2e")
+        fg    = _c("#888888", "#aaaaaa")
+        hover = _c("#e8e8e8", "#3a3a3c")
+        act   = _c("#ddeeff", "#1a2a3a")
+
+        self._eye = QPushButton("👁")
+        self._eye.setFixedSize(36, 36)
+        self._eye.setCheckable(True)
+        self._eye.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._eye.setToolTip("Show / hide")
+        self._eye.setStyleSheet(f"""
+            QPushButton {{
+                background: {bg}; color: {fg};
+                border: 1px solid {bdr}; border-radius: 8px;
+                font-size: 15px; padding: 0;
+            }}
+            QPushButton:hover   {{ background: {hover}; }}
+            QPushButton:checked {{ color: #007AFF; background: {act}; }}
+        """)
+        self._eye.toggled.connect(
+            lambda on: self._edit.setEchoMode(
+                QLineEdit.EchoMode.Normal if on else QLineEdit.EchoMode.Password
+            )
+        )
+
+        row.addWidget(self._edit, 1)
+        row.addWidget(self._eye)
+
+    # ── Proxy API ──────────────────────────────────────────────────────
+    def text(self) -> str:        return self._edit.text()
+    def setText(self, t: str):    self._edit.setText(t)
+
+    @property
+    def textChanged(self):
+        """Return the inner QLineEdit's textChanged signal so callers can connect."""
+        return self._edit.textChanged
+
+
 # ── Main dialog ──────────────────────────────────────────────────────
 
 class SettingsDialog(QDialog):
@@ -390,12 +446,12 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(_section_title("Lark App Credentials"))
         layout.addWidget(_label("App ID", bold=True, size=12, color="#555"))
-        self._lark_id_edit = _input("cli_xxx...")
+        self._lark_id_edit = _SecretField("cli_xxx...")
         self._lark_id_edit.setText(self.config.get("lark_app_id",""))
         layout.addWidget(self._lark_id_edit)
 
         layout.addWidget(_label("App Secret", bold=True, size=12, color="#555"))
-        self._lark_sec_edit = _input("App Secret", password=True)
+        self._lark_sec_edit = _SecretField("App Secret")
         self._lark_sec_edit.setText(self.config.get("lark_app_secret",""))
         layout.addWidget(self._lark_sec_edit)
 
@@ -473,7 +529,7 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(_section_title("Destination"))
         layout.addWidget(_label("Google Drive Folder ID", bold=True, size=12, color="#555"))
-        self._folder_edit = _input("Folder ID or leave blank for root")
+        self._folder_edit = _SecretField("Folder ID or leave blank for root")
         self._folder_edit.setText(self.config.get("gdrive_root_folder_id",""))
         layout.addWidget(self._folder_edit)
         layout.addWidget(_label(
@@ -564,7 +620,7 @@ class SettingsDialog(QDialog):
         ))
 
         layout.addWidget(_label("Lark Group Chat ID", bold=True, size=12, color="#555"))
-        self._notify_edit = _input("oc_xxxxxxxxxxxxxxxx")
+        self._notify_edit = _SecretField("oc_xxxxxxxxxxxxxxxx")
         self._notify_edit.setText(self.config.get("lark_notify_chat_id",""))
         layout.addWidget(self._notify_edit)
 
