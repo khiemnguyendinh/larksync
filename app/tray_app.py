@@ -6,6 +6,7 @@ Listens for Mac sleep/wake to reschedule missed syncs.
 """
 
 import logging
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -33,6 +34,7 @@ class TrayApp(QObject):
         self._thread: SyncThread | None = None
         self._syncing = False
         self._settings_dlg = None  # singleton guard
+        self._menu_hidden_at: float = 0.0  # monotonic timestamp of last menu hide
 
         # ── Tray icon ─────────────────────────────────────────────────
         self._tray = QSystemTrayIcon()
@@ -42,8 +44,14 @@ class TrayApp(QObject):
 
         # ── Menu ──────────────────────────────────────────────────────
         self._menu = QMenu()
+        # Record whenever the menu hides so we can suppress re-open on the
+        # same click that dismissed it (macOS hides before `activated` fires).
+        self._menu.aboutToHide.connect(self._on_menu_hidden)
         self._build_menu()
-        self._tray.setContextMenu(self._menu)
+        # Do NOT call setContextMenu: on macOS, Qt shows the context menu on
+        # every left-click independently of the `activated` signal, which
+        # prevents toggle-close behaviour.  We manage show/hide exclusively
+        # through _on_tray_clicked → popup() / hide().
         self._tray.show()
 
         # ── Scheduler ─────────────────────────────────────────────────
@@ -114,7 +122,6 @@ class TrayApp(QObject):
 
     def _refresh_menu(self):
         self._build_menu()
-        self._tray.setContextMenu(self._menu)
         self._tray.setIcon(self._make_icon(idle=not self._syncing))
 
     # ── Sync control ──────────────────────────────────────────────────
@@ -242,8 +249,18 @@ class TrayApp(QObject):
 
     # ── UI actions ────────────────────────────────────────────────────
 
+    def _on_menu_hidden(self):
+        """Called by QMenu.aboutToHide — record when the menu was last dismissed."""
+        self._menu_hidden_at = time.monotonic()
+
     def _on_tray_clicked(self, reason):
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            # On macOS, the system dismisses the menu *before* `activated` fires,
+            # so isVisible() is already False by the time we get here on a
+            # second click.  Guard: if the menu was hidden within the last 350 ms
+            # the click that closed it is the same physical click → don't reopen.
+            if time.monotonic() - self._menu_hidden_at < 0.35:
+                return
             if self._menu.isVisible():
                 self._menu.hide()
             else:
