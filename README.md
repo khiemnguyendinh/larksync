@@ -30,8 +30,12 @@ A lightweight macOS menu bar app for seamless file synchronization.
 - **Lark Drive support** — Works with Lark (Feishu) custom app credentials
 - **Google Drive upload** — Uploads to any target folder in your Google Drive via OAuth 2.0
 - **Format conversion** — Lark-native files (Docs, Sheets, Mindnotes) exported to Google-compatible formats (Docx, Xlsx, PDF)
+- **Incremental sync** — Only sync new and modified files since last run (faster)
+- **Smart Settings UX** — Sync Now saves + triggers sync; Cancel Sync mid-flight; singleton window guard
+- **Secure credential fields** — All API keys and IDs hidden by default with a 👁 eye toggle
 - **Setup Wizard** — Guided first-time configuration for both Lark and Google credentials
 - **Sync log** — In-app log viewer for reviewing sync history and diagnosing errors
+- **Lark group notification** — Get notified in your Lark group chat after each sync completes
 - **Launch at login** — Optional auto-start via macOS Login Items
 - **Lightweight** — Built with Python + PyQt6, packaged as a standalone `.app` via py2app
 
@@ -118,23 +122,31 @@ The build script uses `py2app` to create a self-contained `.app` bundle. Refer t
 
 ```
 larksync/
-├── main.py              # App entry point
-├── app/                 # Core application modules
-│   ├── tray.py          # Menu bar / system tray logic
-│   ├── settings.py      # Settings window and config persistence
-│   ├── wizard.py        # Setup Wizard
-│   └── log_viewer.py    # Sync log window
-├── sync/                # Sync engine
-│   ├── lark_client.py   # Lark Drive API client
-│   ├── google_client.py # Google Drive API client
-│   └── engine.py        # Core sync logic and scheduler
-├── assets/              # Icons and images
-├── docs/                # Documentation
-│   ├── USER_GUIDE.md
+├── main.py                  # App entry point
+├── app/                     # UI + application layer
+│   ├── config_manager.py    # Config persistence + launch-at-login
+│   ├── tray_app.py          # Menu bar icon, menu, scheduler, sync control
+│   ├── settings_dialog.py   # Tabbed settings window
+│   ├── setup_wizard.py      # First-run 4-step wizard
+│   ├── sync_thread.py       # Background sync QThread
+│   ├── log_viewer.py        # Sync log viewer
+│   ├── mac_menu_bar.py      # macOS native application menu bar
+│   └── win_menu.py          # Windows About dialog
+├── sync/                    # Sync engine (no UI dependencies)
+│   ├── lark_auth.py         # Lark OAuth flows + token management
+│   ├── lark_client.py       # Lark Drive API client
+│   ├── google_client.py     # Google Drive API client
+│   ├── sync_engine.py       # Core sync logic
+│   └── lark_notifier.py     # Post-sync group chat notification
+├── assets/                  # Icons and build assets
+├── docs/                    # Documentation
+│   ├── ARCHITECTURE.md      # System design + module reference
+│   ├── DEVELOPER_GUIDE.md   # Developer onboarding + how-to guides
+│   ├── USER_GUIDE.md        # End-user guide (EN + VI)
 │   ├── TERMS_OF_USE.md
 │   └── DISCLAIMER.md
-├── setup.py             # py2app configuration
-├── build.sh             # Build script
+├── setup.py                 # py2app configuration
+├── build.sh                 # macOS build script (.app + .dmg)
 └── requirements.txt
 ```
 
@@ -142,11 +154,13 @@ larksync/
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [User Guide](docs/USER_GUIDE.md) | Installation, setup, and usage instructions (EN + VI) |
-| [Terms of Use](docs/TERMS_OF_USE.md) | Terms governing use of LarkSync (EN + VI) |
-| [Disclaimer](docs/DISCLAIMER.md) | Liability disclaimer and warranty information (EN + VI) |
+| Document | Audience | Description |
+|----------|----------|-------------|
+| [User Guide](docs/USER_GUIDE.md) | End users | Installation, setup, and usage instructions (EN + VI) |
+| [Architecture](docs/ARCHITECTURE.md) | Developers | System design, module reference, data flows, build pipeline |
+| [Developer Guide](docs/DEVELOPER_GUIDE.md) | Developers | Dev environment, patterns, how-to guides, pitfalls |
+| [Terms of Use](docs/TERMS_OF_USE.md) | End users | Terms governing use of LarkSync (EN + VI) |
+| [Disclaimer](docs/DISCLAIMER.md) | End users | Liability disclaimer and warranty information (EN + VI) |
 
 ---
 
