@@ -10,18 +10,25 @@ A lightweight desktop app for seamless file synchronization — available for **
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue?logo=python)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/khiemnguyendinh/larksync?color=orange)](https://github.com/khiemnguyendinh/larksync/releases)
-[![Build Windows](https://img.shields.io/github/actions/workflow/status/khiemnguyendinh/larksync/build-windows.yml?branch=windows&label=Windows%20Build&logo=github)](https://github.com/khiemnguyendinh/larksync/actions/workflows/build-windows.yml)
+[![Version](https://img.shields.io/badge/version-1.1.0-informational)](CHANGELOG.md)
+[![Build & Test](https://img.shields.io/github/actions/workflow/status/khiemnguyendinh/larksync/build.yml?branch=main&label=Build%20%26%20Test&logo=github)](https://github.com/khiemnguyendinh/larksync/actions/workflows/build.yml)
 [![Author](https://img.shields.io/badge/author-Khiem%20Nguyen%20Dinh-purple)](https://www.kstudy.edu.vn)
 
 </div>
 
 ---
 
-## Screenshot
+## What's new in 1.1.0
 
-> *Screenshot placeholder — add a screenshot of the menu bar and settings window here.*
+- **Windows tray menu works** — right-click shows the menu (it did nothing before), the icon is visible on a dark taskbar, and starting a second copy no longer kills the first.
+- **Missed schedules catch up** — if the Mac was asleep or the PC off at the scheduled time, the sync runs as soon as LarkSync is running again; failed runs retry with back-off.
+- **No more silent data gaps** — a crashed or cancelled sync no longer moves the incremental marker, so files that never uploaded are retried.
+- **Sign-in never freezes the window**, and Settings now has a real **Save** button.
+- **Launch at Login actually works** on both OSes.
+- **Secrets moved out of `~/Documents`** to the OS app-data folder (auto-migrated; see [CHANGELOG](CHANGELOG.md)).
+- **macOS build fixed** (the Google API could fail inside the packaged app) and **Windows installer** (`Setup.exe`) added.
 
-![LarkSync menu bar screenshot](assets/screenshot.png)
+Full list and upgrade notes: **[CHANGELOG.md](CHANGELOG.md)**.
 
 ---
 
@@ -34,13 +41,15 @@ A lightweight desktop app for seamless file synchronization — available for **
 - **Google Drive upload** — Uploads to any target folder in your Google Drive via OAuth 2.0
 - **Format conversion** — Lark-native files (Docs, Sheets, Mindnotes) exported to Google-compatible formats (Docx, Xlsx, PDF)
 - **Incremental sync** — Only sync new and modified files since last run (faster)
-- **Smart Settings UX** — Sync Now saves + triggers sync; Cancel Sync mid-flight; singleton window guard
+- **Smart Settings UX** — Save, or Sync Now (saves + syncs); Cancel Sync mid-flight; singleton window guard
 - **Secure credential fields** — All API keys and IDs hidden by default with a 👁 eye toggle
 - **Setup Wizard** — Guided first-time configuration for both Lark and Google credentials
 - **Sync log** — In-app log viewer for reviewing sync history and diagnosing errors
 - **Lark group notification** — Get notified in your Lark group chat after each sync
-- **Launch at login** — Auto-start via macOS Login Items or Windows Registry
-- **Lightweight** — Built with Python + PyQt6, packaged as `.app` (macOS) or `.exe` (Windows)
+- **Launch at login** — Auto-start via a macOS LaunchAgent or the Windows `Run` registry key
+- **Catch-up scheduling** — Missed syncs run when the app is next running; failed runs retry with back-off
+- **Shared Drives** — The destination folder can be in a Google Shared Drive
+- **Lightweight** — Built with Python + PyQt6, packaged as `.app`/`.dmg` (macOS) or `.exe`/Setup (Windows)
 
 ---
 
@@ -54,22 +63,22 @@ A lightweight desktop app for seamless file synchronization — available for **
 
 | Platform | Requirements |
 |----------|-------------|
-| **macOS** | macOS 12 Monterey or later (Apple Silicon and Intel) |
+| **macOS** | macOS 12 Monterey or later. The CI-built DMG targets Apple Silicon; Intel Macs: build from source |
 | **Windows** | Windows 10 or later (64-bit) |
 
 > No Python installation required for pre-built apps.
 
 ### Build from Source
 - Python 3.11 or later
-- pip / virtualenv
+- pip / virtualenv (the macOS build script creates its own venv)
 
 ---
 
 ## 🍎 macOS — Quick Install
 
-1. Download the latest `LarkSync.dmg` from [Releases](https://github.com/khiemnguyendinh/larksync/releases).
+1. Download the latest `LarkSync.dmg` from [Releases](https://github.com/khiemnguyendinh/larksync/releases) (or from the latest green run of [Actions → Build & Test](https://github.com/khiemnguyendinh/larksync/actions/workflows/build.yml), artifact **LarkSync-macOS**).
 2. Open the DMG and drag **LarkSync.app** to your **Applications** folder.
-3. **First launch:** Right-click the app → **Open** → **Open** (bypasses Gatekeeper for unsigned apps).
+3. **First launch:** Right-click the app → **Open** → **Open** (bypasses Gatekeeper for apps that are not notarized).
 4. The Setup Wizard will guide you through the rest.
 
 > If macOS says the app is damaged, run: `xattr -cr /Applications/LarkSync.app`
@@ -78,13 +87,12 @@ A lightweight desktop app for seamless file synchronization — available for **
 
 ## 🪟 Windows — Quick Install
 
-1. Go to **[GitHub Actions → Build LarkSync (Windows)](https://github.com/khiemnguyendinh/larksync/actions/workflows/build-windows.yml)**. or download here **[Download .exe](https://github.com/khiemnguyendinh/larksync/actions/runs/25170828294/artifacts/6732374205)**
-2. Click the latest successful build run (green ✅).
-3. Scroll to the **Artifacts** section → Download **LarkSync-Windows.zip**.
-4. Extract the ZIP → Run **`LarkSync.exe`**.
-5. The Setup Wizard will guide you through the rest.
+1. Download **`LarkSync-Setup-<version>.exe`** from [Releases](https://github.com/khiemnguyendinh/larksync/releases) (or the **LarkSync-Windows** artifact of the latest green [Build & Test](https://github.com/khiemnguyendinh/larksync/actions/workflows/build.yml) run).
+2. Run it — it installs for your user only, no administrator rights needed.
+3. Start **LarkSync** from the Start menu; the Setup Wizard will guide you through the rest.
+4. Prefer no installer? Use `LarkSync-<version>-Windows.zip`, extract it and run `LarkSync.exe`.
 
-> **Note:** The app will appear in your system tray (near the clock on your taskbar). Right-click the tray icon to access all features.
+> **Note:** The app lives in your system tray (near the clock — click **^** if hidden). **Right-click** the icon for the menu, **left-click** to open Settings. SmartScreen may warn about an unsigned app: **More info → Run anyway**. Details: [Windows guide](Windows_Readme.md).
 
 ---
 
@@ -113,20 +121,17 @@ See the full [User Guide](docs/USER_GUIDE.md) for step-by-step instructions.
 git clone https://github.com/khiemnguyendinh/larksync.git
 cd larksync
 
-# 2. Create and activate a virtual environment
-python3 -m venv venv
-source venv/bin/activate
-
-# 3. Install dependencies
+# 2. Run in development mode
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-
-# 4. Run in development mode
 python main.py
 
-# 5. Build the .app bundle + .dmg installer
+# 3. Build the .app bundle + .dmg installer (creates its own venv)
 bash build.sh
 # Output: dist/LarkSync.app + dist/LarkSync.dmg
 ```
+
+`build.sh` trims the bundle, runs `LarkSync --selftest` against it, and signs it (ad-hoc by default; set `CODESIGN_IDENTITY` / `NOTARY_PROFILE` for a notarized, distributable build — see the [Developer Guide](docs/DEVELOPER_GUIDE.md#9-building-a-release)).
 
 ### Windows
 
@@ -145,19 +150,29 @@ pip install -r requirements_windows.txt
 # 4. Run in development mode
 python main.py
 
-# 5. Build the .exe (using PyInstaller)
+# 5. Build the .exe (PyInstaller) and zip
 build_windows.cmd
 # Output: dist\LarkSync\LarkSync.exe
+
+# 6. Optional: the Setup.exe installer (Inno Setup 6.3+)
+iscc /DMyAppVersion=1.1.0 installer\windows\LarkSync.iss
 ```
 
-> **Tip:** You don't need a Windows machine to build the Windows version! The GitHub Actions workflow automatically builds the `.exe` whenever code is pushed to the `windows` branch. See [`.github/workflows/build-windows.yml`](.github/workflows/build-windows.yml).
+> **Tip:** You don't need a Windows machine or a Mac to get the installers! The GitHub Actions workflow ([`build.yml`](.github/workflows/build.yml)) runs the tests on Linux, macOS and Windows and builds both installers on every push; pushing a `v*` tag also drafts a GitHub release.
+
+### Tests
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest tests -q        # ~120 tests, headless, no network
+```
 
 **Dependencies:**
 - `PyQt6` — Cross-platform UI framework
 - `google-api-python-client` — Google Drive API
 - `google-auth-oauthlib` — Google OAuth flow
 - `requests` — HTTP client for Lark API
-- `py2app` — macOS app bundler (macOS build only)
+- `py2app` / `dmgbuild` — macOS bundler (macOS build only)
 - `pyinstaller` — Windows executable bundler (Windows build only)
 
 ---
@@ -166,48 +181,53 @@ build_windows.cmd
 
 ```
 larksync/
-├── main.py                  # App entry point (cross-platform)
+├── main.py                  # App entry point (cross-platform; `--selftest` for CI)
 ├── app/                     # UI + application layer
-│   ├── config_manager.py    # Config persistence + launch-at-login
-│   ├── tray_app.py          # System tray / menu bar logic + scheduler
+│   ├── version.py           # Single source of truth for the version
+│   ├── config_manager.py    # Config persistence (atomic, private)
+│   ├── autostart.py         # Launch at login (LaunchAgent / Run key)
+│   ├── scheduler.py         # Schedule maths: catch-up + retry back-off
+│   ├── platform_utils.py    # IS_MAC / IS_WIN, resource lookup
+│   ├── tray_app.py          # System tray / menu bar logic + scheduler wiring
 │   ├── settings_dialog.py   # Tabbed settings window
 │   ├── setup_wizard.py      # First-run 4-step wizard
 │   ├── sync_thread.py       # Background sync QThread
+│   ├── oauth_worker.py      # Non-blocking Lark / Google sign-in
 │   ├── log_viewer.py        # Sync log viewer
+│   ├── about_dialog.py      # Shared About dialog
 │   ├── mac_menu_bar.py      # macOS native application menu bar
-│   └── win_menu.py          # Windows About dialog
+│   └── win_menu.py          # Windows About wrapper
 ├── sync/                    # Sync engine (no UI dependencies)
-│   ├── lark_auth.py         # Lark OAuth flows + token management
+│   ├── paths.py             # Data folder per OS, atomic private writes, migration
+│   ├── lark_auth.py         # Lark OAuth flow + token management
 │   ├── lark_client.py       # Lark Drive API client
 │   ├── google_client.py     # Google Drive API client
 │   ├── sync_engine.py       # Core sync logic
 │   └── lark_notifier.py     # Post-sync group chat notification
-├── assets/                  # Icons and build assets
+├── tests/                   # pytest suite
+├── installer/               # macOS entitlements, Windows Inno Setup script
+├── assets/                  # Icons (icns / png / ico)
 ├── docs/                    # Documentation
-│   ├── ARCHITECTURE.md      # System design + module reference (NEW)
-│   ├── DEVELOPER_GUIDE.md   # Developer onboarding + how-to guides (NEW)
-│   ├── USER_GUIDE.md        # End-user guide (EN + VI)
-│   ├── TERMS_OF_USE.md
-│   └── DISCLAIMER.md
 ├── .github/workflows/       # CI/CD
-│   └── build-windows.yml    # Auto-build Windows .exe on push
+│   └── build.yml            # Tests (3 OSes) + macOS + Windows builds + draft release
 ├── setup.py                 # py2app configuration (macOS)
 ├── build.sh                 # macOS build script (.app + .dmg)
-├── build_windows.py         # PyInstaller config (Windows)
-├── build_windows.cmd        # Windows build script
-├── requirements.txt         # macOS dependencies
-└── requirements_windows.txt # Windows dependencies
+├── build_windows.py         # PyInstaller build (Windows)
+├── build_windows.cmd        # Windows build wrapper
+├── requirements.txt         # Runtime dependencies
+├── requirements_macos.txt   # + py2app, dmgbuild
+├── requirements_windows.txt # + pyinstaller
+├── requirements-dev.txt     # + pytest, pyflakes
+└── CHANGELOG.md
 ```
+
+Your data lives in `~/Library/Application Support/LarkSync` (macOS) or `%APPDATA%\LarkSync` (Windows).
 
 ---
 
 ## Branches
 
-| Branch | Purpose |
-|--------|---------|
-| `main` | Stable release — merged from platform branches |
-| `macos` | Active macOS development |
-| `windows` | Active Windows development + CI build |
+`main` is the only long-lived branch; work happens on short-lived branches merged by pull request. CI builds and tests both platforms from the same tree, so the old `macos` / `windows` branches are no longer needed.
 
 ---
 
@@ -235,7 +255,7 @@ Contributions are welcome! Here's how to get started:
 
 **Please:**
 - Follow the existing code style
-- Test on both platforms if possible (macOS + Windows)
+- Add or update tests (`python -m pytest tests`) — CI runs them on Linux, macOS and Windows
 - Update documentation as needed
 - Do not commit credentials or token files
 
