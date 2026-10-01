@@ -66,7 +66,7 @@ Release focus: make the **macOS** build correct first, then bring **Windows** to
 ### Known limitations
 
 - Builds are not code-signed unless you supply a certificate (macOS: Developer ID + notarization; Windows: signtool). Users see the Gatekeeper / SmartScreen prompts described in the guides.
-- The CI macOS build is Apple Silicon (arm64). Intel Macs must build from source.
+- The CI macOS build is universal (`x86_64 arm64` launcher, universal2 Python), but its self-test only runs on Apple Silicon: Intel Macs are untested.
 - Not verified against live Lark/Google accounts in this release: the Lark API behaviours assumed by the new code (the `state` echo on the OAuth redirect, `Content-Length` on downloads) follow the documented API.
 - Lark MindNote and Slides export rely on the export-task API supporting those types; failures are reported per file in the log.
 

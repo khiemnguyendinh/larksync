@@ -27,7 +27,7 @@
 3. **First launch:** macOS Gatekeeper will block unsigned apps. Right-click (or Control-click) `LarkSync.app` in Applications, select **Open**, then click **Open** in the security dialog.
 4. LarkSync will appear as an icon in your **menu bar** (top-right area of your screen).
 
-> **System Requirements:** macOS 12 Monterey or later. The published DMG is built for Apple Silicon unless the release notes say otherwise; on an Intel Mac, build from source (see the Developer Guide).
+> **System Requirements:** macOS 12 Monterey or later. The DMG contains both Apple Silicon and Intel code. It is tested on Apple Silicon; if it misbehaves on an Intel Mac, please report it or build from source (see the Developer Guide).
 
 **Windows 10 / 11 (64-bit):** download `LarkSync-Setup-<version>.exe` from the Releases page and run it (no administrator rights needed; optional "start when I sign in" checkbox). Prefer a portable copy? Download `LarkSync-<version>-Windows.zip`, extract it and run `LarkSync.exe`. Windows SmartScreen may warn about an unsigned app: click **More info → Run anyway**. LarkSync then lives in the system tray — see [Windows guide](../Windows_Readme.md).
 
@@ -38,7 +38,7 @@
 3. **Lần đầu mở:** macOS sẽ chặn app chưa được xác thực. Nhấp chuột phải (hoặc Control-click) vào `LarkSync.app` trong Applications, chọn **Open**, sau đó chọn **Open** trong hộp thoại bảo mật.
 4. LarkSync sẽ xuất hiện dưới dạng biểu tượng trên **menu bar** (góc trên bên phải màn hình).
 
-> **Yêu cầu hệ thống:** macOS 12 Monterey trở lên. File DMG phát hành được build cho Apple Silicon trừ khi ghi chú phát hành nói khác; với Mac Intel, hãy build từ mã nguồn (xem Developer Guide).
+> **Yêu cầu hệ thống:** macOS 12 Monterey trở lên. File DMG chứa cả mã Apple Silicon và Intel. Đã được kiểm thử trên Apple Silicon; nếu gặp lỗi trên Mac Intel, hãy báo lỗi hoặc build từ mã nguồn (xem Developer Guide).
 
 **Windows 10 / 11 (64-bit):** tải `LarkSync-Setup-<phiên bản>.exe` từ trang Releases và chạy (không cần quyền administrator; có tùy chọn "tự khởi động khi đăng nhập"). Muốn bản portable? Tải `LarkSync-<phiên bản>-Windows.zip`, giải nén và chạy `LarkSync.exe`. Windows SmartScreen có thể cảnh báo app chưa ký: bấm **More info → Run anyway**. LarkSync nằm ở khay hệ thống — xem [Hướng dẫn Windows](../Windows_Readme.md).
 

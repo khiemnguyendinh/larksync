@@ -777,7 +777,7 @@ iscc /DMyAppVersion=<version> installer/windows/LarkSync.iss
 | Job | Runs on | What |
 |---|---|---|
 | `test` | ubuntu, macOS, Windows | `pyflakes` + `pytest` (offscreen Qt). The suite includes real LaunchAgent / registry round-trips on their own OS |
-| `build-macos` | macos-14 (Apple Silicon) | `build.sh` (includes `--selftest` of the `.app`), `hdiutil verify`, `codesign --verify`; uploads `LarkSync.dmg` |
+| `build-macos` | macos-14 (Apple Silicon runner, universal2 Python) | `build.sh` (includes `--selftest` of the `.app`), `hdiutil verify`, `codesign --verify`; uploads `LarkSync.dmg` |
 | `build-windows` | windows-latest | `build_windows.py` (folder + portable), `--selftest` of both `.exe`s, Inno Setup; uploads Setup.exe + portable `.exe` + zip |
 | `release` | tags `v*` only | Creates a **draft** GitHub release with the artifacts |
 

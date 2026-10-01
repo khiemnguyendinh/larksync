@@ -63,7 +63,7 @@ Full list and upgrade notes: **[CHANGELOG.md](CHANGELOG.md)**.
 
 | Platform | Requirements |
 |----------|-------------|
-| **macOS** | macOS 12 Monterey or later. The CI-built DMG targets Apple Silicon; Intel Macs: build from source |
+| **macOS** | macOS 12 Monterey or later. The CI-built DMG contains both Apple Silicon and Intel code; it is self-tested on Apple Silicon (Intel is untested) |
 | **Windows** | Windows 10 or later (64-bit) |
 
 > No Python installation required for pre-built apps.

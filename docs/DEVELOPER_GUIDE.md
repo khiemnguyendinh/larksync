@@ -426,7 +426,7 @@ LarkSync deliberately shows a Dock icon and the native menu bar (File / Help), p
 
 **Hardened runtime / notarization (untested here):** `build.sh` supports `CODESIGN_IDENTITY` and `NOTARY_PROFILE`; the entitlements live in `installer/macos/entitlements.plist`. Without a Developer-ID certificate the build is ad-hoc signed (required to run on Apple Silicon) and users must right-click → Open on first launch.
 
-**Architecture:** `lipo -archs dist/LarkSync.app/Contents/MacOS/LarkSync` tells you what you built. CI builds on an Apple-Silicon runner (arm64); an Intel or universal2 build needs an Intel/universal2 Python.
+**Architecture:** `lipo -archs dist/LarkSync.app/Contents/MacOS/LarkSync` tells you what you built. CI builds on an Apple-Silicon runner (`macos-14`) with the universal2 Python from `actions/setup-python`; the first CI run reported `x86_64 arm64` for the launcher. The `--selftest` only ever runs on Apple Silicon, so Intel is unverified — test on an Intel Mac before advertising it.
 
 **Data folder:** `~/Library/Application Support/LarkSync` (not `~/Documents`, which iCloud may sync).
 
