@@ -161,7 +161,7 @@ Paths are built with `plistlib` / `subprocess.list2cmdline`, never string-interp
 
 ### `app/scheduler.py` — Schedule maths (pure functions)
 
-`last_due(now, …)` is the most recent scheduled moment ≤ now; `should_run()` is true when the later of `last_sync` and `schedule_anchor` is before it. That gives catch-up after sleep / shutdown for free, treats a manual sync after the slot as satisfying it, and re-arms the schedule when Settings changes it. Failed attempts (`fail_streak`) retry after 15 min, doubling up to 4 h, at most 6 times per slot.
+`last_due(now, …)` is the most recent scheduled moment ≤ now; `should_run()` is true when the later of `last_sync` and `schedule_anchor` is before it. That gives catch-up after sleep / shutdown for free, treats a manual sync after the slot as satisfying it, and re-arms the schedule when Settings changes it. Failed attempts (`fail_streak`) retry after 15 min, doubling up to 4 h; after 6 failed attempts in a row it waits for the next slot.
 
 ---
 

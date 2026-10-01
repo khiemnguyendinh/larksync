@@ -239,7 +239,7 @@ Open **Settings → General** to configure automatic syncing.
 
 - Changes take effect after you click **Save** or **Sync Now**. Changing the schedule restarts the countdown — it will not fire an "overdue" sync the moment you save.
 - The app must be running (icon visible) for scheduled syncs to occur. LarkSync does not run as a background service when quit.
-- **Missed a slot?** If the computer was asleep or switched off at the scheduled time, LarkSync catches up within a minute of the app running again (a manual sync after the slot also counts). If a scheduled sync fails because you are offline or a sign-in expired, it is retried automatically after 15 minutes, then 30, 60… up to 6 times.
+- **Missed a slot?** If the computer was asleep or switched off at the scheduled time, LarkSync catches up within a minute of the app running again (a manual sync after the slot also counts). If a scheduled sync fails because you are offline or a sign-in expired, it is retried automatically after 15 minutes, then 30, 60… and gives up until the next slot after 6 failed attempts in a row.
 - A new installation never starts a surprise full sync: the first scheduled run is the next scheduled slot (or press **Sync Now**).
 - To start LarkSync automatically at login, go to **Settings → General** and enable **Launch at Login**.
 
@@ -272,7 +272,7 @@ Tất cả trường nhạy cảm (App ID, App Secret, Google Drive Folder ID, L
 
 - Thay đổi có hiệu lực sau khi bấm **Save** hoặc **Sync Now**. Đổi lịch sẽ đặt lại bộ đếm — app không đồng bộ bù ngay lúc bạn lưu.
 - App phải đang chạy (biểu tượng hiển thị trên menu bar) để lịch đồng bộ hoạt động. LarkSync không chạy nền khi đã thoát.
-- **Lỡ lịch?** Nếu máy ngủ hoặc tắt đúng giờ hẹn, LarkSync tự đồng bộ bù trong vòng 1 phút sau khi app chạy lại (đồng bộ thủ công sau giờ hẹn cũng được tính). Nếu đồng bộ theo lịch thất bại do mất mạng hoặc hết hạn đăng nhập, app tự thử lại sau 15 phút, rồi 30, 60… tối đa 6 lần.
+- **Lỡ lịch?** Nếu máy ngủ hoặc tắt đúng giờ hẹn, LarkSync tự đồng bộ bù trong vòng 1 phút sau khi app chạy lại (đồng bộ thủ công sau giờ hẹn cũng được tính). Nếu đồng bộ theo lịch thất bại do mất mạng hoặc hết hạn đăng nhập, app tự thử lại sau 15 phút, rồi 30, 60… và dừng đến mốc lịch kế tiếp sau 6 lần thất bại liên tiếp.
 - Cài mới sẽ không tự chạy đồng bộ toàn bộ bất ngờ: lần chạy theo lịch đầu tiên là mốc lịch kế tiếp (hoặc bấm **Sync Now**).
 - Để tự động khởi động LarkSync khi đăng nhập, vào **Settings → General** và bật **Launch at Login**.
 
