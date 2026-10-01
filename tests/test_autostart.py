@@ -24,7 +24,8 @@ def test_launch_command_mac_bundle(monkeypatch):
     monkeypatch.setattr(autostart, "IS_MAC", True)
     monkeypatch.setattr(autostart, "IS_WIN", False)
     monkeypatch.setattr(autostart, "app_bundle_path", lambda *a: Path("/Applications/LarkSync.app"))
-    assert autostart.launch_command() == ["/usr/bin/open", "-a", "/Applications/LarkSync.app"]
+    # str(Path(...)) because Windows renders the separators as backslashes
+    assert autostart.launch_command() == ["/usr/bin/open", "-a", str(Path("/Applications/LarkSync.app"))]
 
 
 def test_launch_command_from_source_runs_main_py(monkeypatch):

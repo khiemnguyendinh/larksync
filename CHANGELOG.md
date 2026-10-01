@@ -18,7 +18,7 @@ Release focus: make the **macOS** build correct first, then bring **Windows** to
 - **Tray icon was invisible on a dark taskbar** (black strokes on transparent). It is now blue (idle) / orange (syncing).
 - **A second launch could terminate the running app.** The lock check used `os.kill(pid, 0)`, which on Windows calls `TerminateProcess`. It now uses a `QLockFile`, which also handles crashed instances.
 - **`build_windows.py` could not build** (`--add-data` used `:` as separator; `assets/icon.ico` did not exist) and CI carried a diverging copy of the options. One script is now used everywhere, an icon is committed, and the exe carries version/publisher metadata.
-- "Launch at login" pointed the registry at `python.exe` when run from source; it now launches the real exe (or `pythonw.exe main.py`).
+- "Launch at login" pointed the registry at `python.exe` when run from source; it now launches the real exe (or `pythonw.exe main.py`). It also failed with `WinError 2` on a profile whose `...\CurrentVersion\Run` key did not exist yet; the key is now created when needed (caught by CI on a clean Windows account).
 - Clicking elsewhere could re-open Settings behind the tray menu (macOS Dock handler was active on Windows).
 - `credentials.json` with non-ASCII content was rejected (default code page); files are now read as UTF-8.
 - Log viewer monospace font fell back to a proportional font.

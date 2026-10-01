@@ -103,7 +103,9 @@ def windows_run_value(command: List[str]) -> str:
 def _set_enabled_win(enabled: bool) -> bool:
     import winreg
     try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, WIN_RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
+        # CreateKeyEx, not OpenKey: the Run key does not exist in a fresh profile and
+        # OpenKey then fails with WinError 2 (found by CI on a clean Windows account).
+        with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, WIN_RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
             if enabled:
                 winreg.SetValueEx(key, WIN_RUN_VALUE, 0, winreg.REG_SZ,
                                   windows_run_value(launch_command()))
