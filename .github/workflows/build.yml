@@ -1,0 +1,161 @@
+# ─────────────────────────────────────────────────────────────────────
+# LarkSync — test + build (macOS first, then Windows)
+#
+#   every push / PR   unit tests on Linux, macOS and Windows
+#                     macOS  : LarkSync.app + LarkSync.dmg   (py2app, self-tested)
+#                     Windows: LarkSync.exe folder, .zip and Setup.exe (PyInstaller + Inno Setup, self-tested)
+#   tag v*            also publishes a DRAFT GitHub release with the installers
+#
+# Download builds from the run's "Artifacts" section.
+# Builds are unsigned unless you add signing secrets — see docs/DEVELOPER_GUIDE.md.
+# ─────────────────────────────────────────────────────────────────────
+name: Build & Test
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ── 1. Unit tests on all three platforms ───────────────────────────
+  test:
+    name: Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Qt system libraries (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libdbus-1-3 libfontconfig1
+
+      - run: python -m pip install -r requirements-dev.txt
+
+      - name: Lint (pyflakes)
+        run: python -m pyflakes main.py app sync tests
+
+      - name: Unit tests
+        run: python -m pytest tests -v
+
+  # ── 2. macOS ───────────────────────────────────────────────────────
+  build-macos:
+    name: Build macOS (.app + .dmg)
+    needs: test
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build (py2app + self test + ad-hoc sign + dmg)
+        env:
+          SKIP_VENV: '1'
+        run: bash build.sh
+
+      - name: Verify the disk image
+        run: |
+          hdiutil verify dist/LarkSync.dmg
+          codesign --verify --deep --strict dist/LarkSync.app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LarkSync-macOS
+          path: dist/LarkSync.dmg
+          if-no-files-found: error
+          retention-days: 30
+
+  # ── 3. Windows ─────────────────────────────────────────────────────
+  build-windows:
+    name: Build Windows (.exe, .zip, Setup.exe)
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - run: python -m pip install -r requirements_windows.txt
+
+      - name: Build LarkSync.exe (PyInstaller)
+        run: python build_windows.py
+
+      - name: Self test of the packaged .exe
+        shell: pwsh
+        run: |
+          $home_dir = Join-Path $env:RUNNER_TEMP 'larksync-selftest'
+          New-Item -ItemType Directory -Force $home_dir | Out-Null
+          $env:LARKSYNC_HOME = $home_dir
+          $env:LARKSYNC_SELFTEST_OUT = Join-Path $home_dir 'selftest.txt'
+          $p = Start-Process -FilePath 'dist\LarkSync\LarkSync.exe' -ArgumentList '--selftest' -Wait -PassThru
+          if (Test-Path $env:LARKSYNC_SELFTEST_OUT) { Get-Content $env:LARKSYNC_SELFTEST_OUT }
+          else { Write-Host 'No selftest output was written' }
+          if ($p.ExitCode -ne 0) { throw "Self test failed (exit code $($p.ExitCode))" }
+
+      - name: Build the installer (Inno Setup)
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path app\version.py -Pattern '__version__\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          $iscc = Get-Command iscc -ErrorAction SilentlyContinue
+          if (-not $iscc) {
+            $candidate = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+            if (-not (Test-Path $candidate)) { choco install innosetup -y --no-progress }
+            $iscc = if (Test-Path $candidate) { $candidate } else { (Get-Command iscc).Source }
+          } else { $iscc = $iscc.Source }
+          & $iscc "/DMyAppVersion=$version" installer\windows\LarkSync.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
+          Get-ChildItem dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LarkSync-Windows
+          path: |
+            dist/LarkSync-*-Windows.zip
+            dist/LarkSync-Setup-*.exe
+          if-no-files-found: error
+          retention-days: 30
+
+  # ── 4. Draft release on version tags ───────────────────────────────
+  release:
+    name: Draft GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: artifacts/*

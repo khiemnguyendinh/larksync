@@ -1,7 +1,3 @@
-PyQt6>=6.6.0
-requests>=2.31.0
-google-api-python-client>=2.100.0
-google-auth>=2.23.0
-google-auth-oauthlib>=1.1.0
-google-auth-httplib2>=0.1.1
+# Windows build (python build_windows.py): runtime + bundler
+-r requirements.txt
 pyinstaller>=6.3.0
