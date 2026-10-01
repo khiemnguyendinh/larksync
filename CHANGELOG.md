@@ -26,6 +26,7 @@ Release focus: make the **macOS** build correct first, then bring **Windows** to
 
 ### Fixed — macOS
 
+- **None of the py2app options in `setup.py` were ever applied.** It called `setup(py2app={...})` instead of `setup(options={"py2app": {...}})`, which setuptools silently ignores. The shipped bundle therefore had no bundle identifier/version, no `NSHighResolutionCapable` (blurry on Retina), no icon (hence the old icon-copy workaround in `build.sh`), no `assets/`, no excludes (~400 MB) and relied purely on auto-detection. Options now apply; the bundle is built and self-tested in CI. The CI self-test of the real `.app` also caught a missing `_cffi_backend` extension (needed by `google-auth`), now included.
 - **Packaged app could not create the Google Drive service**: `build.sh` deleted the whole `googleapiclient/discovery_cache` package, which `build()` imports at runtime. Now only the large `documents/` folder is pruned (keeping `drive.v3.json`), and the bundle is self-tested after trimming.
 - **"Launch at Login" never worked**: Settings compared the new value to the value it had just saved, and the LaunchAgent ran the bundled Python interpreter instead of the app. It now writes a LaunchAgent that runs `open -a LarkSync.app`.
 - `build.sh` failed for anyone without `~/Desktop/larksync icon.png` and under `set -e` on missing folders; it used the global Python and fake size numbers. It now uses the committed icon, a private venv, real sizes, ad-hoc (or Developer-ID) signing, and `hdiutil` fallback with visible errors.

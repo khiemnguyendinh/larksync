@@ -534,6 +534,10 @@ dlg = SomeDialog(tray_app)                         # wrong if tray_app is QObjec
 
 `py2app` bundles **whatever Python is invoked by `python3`** on your system. `build.sh` creates `.build-venv` from the `python3` on your PATH (3.11+ recommended), so check `python3 --version` first.
 
+### py2app options must go through `options=`
+
+`setup(options={"py2app": {...}})` is correct; `setup(py2app={...})` is silently ignored by setuptools (v1.0.x shipped like that: no plist keys, icon, resources or excludes). If a bundle ignores your `setup.py`, check this first, then run `bash build.sh` — its self-test fails the build when an import or data file is missing.
+
 ### Don't delete `googleapiclient/discovery_cache`
 
 `googleapiclient.discovery.build()` imports that package at runtime. Delete only the (huge) `documents/` JSON files except `drive.v3.json`, as `build.sh` / `build_windows.py` do. `--selftest` fails the build if this goes wrong.
