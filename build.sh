@@ -111,6 +111,16 @@ fi
 # Tcl/Tk framework (tkinter) is not used
 rm -rf "${APP_PATH}/Contents/Frameworks/Tcl.framework" "${APP_PATH}/Contents/Frameworks/Tk.framework" || true
 
+# Trimming can leave symlinks that point at deleted files; codesign --strict rejects the
+# whole bundle for them ("No such file or directory") and Gatekeeper would then call the
+# app "damaged". Remove them (and say which, so a surprising one is visible).
+DANGLING=$(find "${APP_PATH}" -type l ! -exec test -e {} \; -print)
+if [ -n "${DANGLING}" ]; then
+    echo "  Removing $(echo "${DANGLING}" | wc -l | tr -d ' ') dangling symlink(s):"
+    echo "${DANGLING}" | head -20 | sed 's/^/    /'
+    echo "${DANGLING}" | while IFS= read -r link; do rm -f "${link}"; done
+fi
+
 SIZE_AFTER=$(du -sm "${APP_PATH}" | awk '{print $1}')
 echo "  ✓ Bundle trimmed: ${SIZE_BEFORE} MB → ${SIZE_AFTER} MB"
 
@@ -144,7 +154,13 @@ else
     codesign --force --deep --sign - "${APP_PATH}"
     echo "  ✓ Ad-hoc signed (set CODESIGN_IDENTITY for a distributable build)"
 fi
-codesign --verify --deep --strict "${APP_PATH}" && echo "  ✓ Signature verified"
+# Fatal: an app whose seal is broken is reported as "damaged" by Gatekeeper.
+if codesign --verify --deep --strict --verbose=2 "${APP_PATH}"; then
+    echo "  ✓ Signature verified"
+else
+    echo "  ✕ codesign verification failed" >&2
+    exit 1
+fi
 
 # ── 8. Build .dmg ─────────────────────────────────────────────────────
 echo "▸ Building .dmg installer..."

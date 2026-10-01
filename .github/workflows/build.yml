@@ -75,9 +75,7 @@ jobs:
         run: bash build.sh
 
       - name: Verify the disk image
-        run: |
-          hdiutil verify dist/LarkSync.dmg
-          codesign --verify --deep --strict dist/LarkSync.app
+        run: hdiutil verify dist/LarkSync.dmg
 
       - uses: actions/upload-artifact@v4
         with:
