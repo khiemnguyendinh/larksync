@@ -1,27 +1,33 @@
 """
-py2app build configuration
-Run: python3 setup.py py2app
+py2app build configuration (macOS)
+Run: python3 setup.py py2app        (or simply: bash build.sh)
 Output: dist/LarkSync.app
 """
+
+import re
+from pathlib import Path
 
 from setuptools import setup
 
 APP        = ["main.py"]
 APP_NAME   = "LarkSync"
-VERSION    = "1.0.0"
+# Single source of truth: app/version.py (read as text so PyQt is not imported here)
+VERSION    = re.search(r'__version__\s*=\s*"([^"]+)"',
+                       (Path(__file__).parent / "app" / "version.py").read_text(encoding="utf-8")).group(1)
 
 OPTIONS = {
     "app":      APP,
     "options": {
         "py2app": {
             "name":        APP_NAME,
-            "iconfile":    "assets/icon.icns",   # see build.sh for icon generation
+            "iconfile":    "assets/icon.icns",   # committed; build.sh regenerates it if assets/icon.png is newer
             "plist": {
                 "CFBundleName":               APP_NAME,
                 "CFBundleDisplayName":        APP_NAME,
                 "CFBundleIdentifier":         "com.kstudy.larksync",
                 "CFBundleVersion":            VERSION,
                 "CFBundleShortVersionString": VERSION,
+                "LSMinimumSystemVersion":     "12.0",
                 "NSHighResolutionCapable":    True,
                 "LSUIElement":                False,  # show in Dock + native menu bar
                 "NSHumanReadableCopyright":   "© 2026 Khiem Nguyen Dinh - Kstudy Academy. All rights reserved.",
@@ -31,6 +37,9 @@ OPTIONS = {
                 "google",
                 "googleapiclient",
                 "google_auth_oauthlib",
+                "google_auth_httplib2",
+                "httplib2",
+                "certifi",
                 "requests",
                 "app",
                 "sync",
@@ -71,8 +80,9 @@ OPTIONS = {
                 "xmlrpc", "ftplib", "imaplib", "smtplib", "poplib",
                 "antigravity", "turtle", "curses",
                 "distutils",
-                # Google APIs we don't use (shrinks discovery_cache usage)
-                "googleapiclient.discovery_cache",
+                # NOTE: googleapiclient.discovery_cache must stay — googleapiclient
+                # imports it inside build(). build.sh only prunes its huge
+                # documents/ folder (keeping drive.v3.json).
             ],
             "frameworks": [],
             "resources":  ["assets"],
