@@ -49,7 +49,7 @@ Release focus: make the **macOS** build correct first, then bring **Windows** to
 
 ### Added
 
-- **Windows installer** (`LarkSync-Setup-<version>.exe`, Inno Setup, per-user, optional start-at-login and desktop shortcut) next to the portable zip.
+- **Windows installer** (`LarkSync-Setup-<version>.exe`, Inno Setup, per-user, optional start-at-login and desktop shortcut), the **portable single-file** `LarkSync-<version>-Portable.exe` (carried over from the unmerged `windows` branch / PR #3, now built by the same script) and the folder `.zip`.
 - **Unified CI** (`.github/workflows/build.yml`): tests on Linux/macOS/Windows, macOS `.dmg`, Windows installer + zip, draft GitHub release on `v*` tags.
 - **`--selftest`** flag: checks a packaged build's imports, TLS bundle, icon, Drive discovery document and widgets; run by `build.sh` and CI.
 - macOS: `⌘R` Sync Now and `⌘L` View Log in the File menu; optional Developer-ID signing + notarization in `build.sh`.
@@ -60,7 +60,7 @@ Release focus: make the **macOS** build correct first, then bring **Windows** to
 
 - Config, tokens and sync state are written atomically with owner-only permissions (POSIX).
 - Requirements split into `requirements.txt` (runtime), `requirements_macos.txt`, `requirements_windows.txt`, `requirements-dev.txt`.
-- The `macos` / `windows` branch workflow is retired; `main` is built and tested for both platforms.
+- The `macos` / `windows` branch workflow is retired; `main` is built and tested for both platforms. Open PRs #2 (`macos`) and #3 (`windows`) are superseded by this release: their code changes are included (tray toggle fix is already in `main`; the portable single-file build is integrated), their README/guide edits are older than the rewritten docs.
 
 ### Known limitations
 

@@ -3,7 +3,7 @@
 #
 #   every push / PR   unit tests on Linux, macOS and Windows
 #                     macOS  : LarkSync.app + LarkSync.dmg   (py2app, self-tested)
-#                     Windows: LarkSync.exe folder, .zip and Setup.exe (PyInstaller + Inno Setup, self-tested)
+#                     Windows: Setup.exe, portable single-file .exe and folder .zip (PyInstaller + Inno Setup, self-tested)
 #   tag v*            also publishes a DRAFT GitHub release with the installers
 #
 # Download builds from the run's "Artifacts" section.
@@ -88,7 +88,7 @@ jobs:
 
   # ── 3. Windows ─────────────────────────────────────────────────────
   build-windows:
-    name: Build Windows (.exe, .zip, Setup.exe)
+    name: Build Windows (Setup.exe, portable .exe, .zip)
     needs: test
     runs-on: windows-latest
     steps:
@@ -105,17 +105,21 @@ jobs:
       - name: Build LarkSync.exe (PyInstaller)
         run: python build_windows.py
 
-      - name: Self test of the packaged .exe
+      - name: Self test of the packaged .exe files (folder + portable)
         shell: pwsh
         run: |
-          $home_dir = Join-Path $env:RUNNER_TEMP 'larksync-selftest'
-          New-Item -ItemType Directory -Force $home_dir | Out-Null
-          $env:LARKSYNC_HOME = $home_dir
-          $env:LARKSYNC_SELFTEST_OUT = Join-Path $home_dir 'selftest.txt'
-          $p = Start-Process -FilePath 'dist\LarkSync\LarkSync.exe' -ArgumentList '--selftest' -Wait -PassThru
-          if (Test-Path $env:LARKSYNC_SELFTEST_OUT) { Get-Content $env:LARKSYNC_SELFTEST_OUT }
-          else { Write-Host 'No selftest output was written' }
-          if ($p.ExitCode -ne 0) { throw "Self test failed (exit code $($p.ExitCode))" }
+          $exes = @('dist\LarkSync\LarkSync.exe') + (Get-ChildItem 'dist\LarkSync-*-Portable.exe' | ForEach-Object { $_.FullName })
+          foreach ($exe in $exes) {
+            Write-Host "=== $exe ==="
+            $home_dir = Join-Path $env:RUNNER_TEMP ('larksync-selftest-' + [guid]::NewGuid())
+            New-Item -ItemType Directory -Force $home_dir | Out-Null
+            $env:LARKSYNC_HOME = $home_dir
+            $env:LARKSYNC_SELFTEST_OUT = Join-Path $home_dir 'selftest.txt'
+            $p = Start-Process -FilePath $exe -ArgumentList '--selftest' -Wait -PassThru
+            if (Test-Path $env:LARKSYNC_SELFTEST_OUT) { Get-Content $env:LARKSYNC_SELFTEST_OUT }
+            else { Write-Host 'No selftest output was written' }
+            if ($p.ExitCode -ne 0) { throw "Self test failed for $exe (exit code $($p.ExitCode))" }
+          }
 
       - name: Build the installer (Inno Setup)
         shell: pwsh
@@ -136,6 +140,7 @@ jobs:
           name: LarkSync-Windows
           path: |
             dist/LarkSync-*-Windows.zip
+            dist/LarkSync-*-Portable.exe
             dist/LarkSync-Setup-*.exe
           if-no-files-found: error
           retention-days: 30

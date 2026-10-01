@@ -17,9 +17,12 @@
 2. Run it. It installs for your user only — **no administrator rights needed** — and offers a Start-menu entry, an optional desktop shortcut and an optional "start LarkSync when I sign in" checkbox.
 3. Launch **LarkSync** from the Start menu. Uninstall any time from **Settings → Apps**.
 
-### Option 2: Portable ZIP
+### Option 2: Portable — no install
 
-Download **`LarkSync-<version>-Windows.zip`** (same places as above), extract it anywhere and double-click **`LarkSync.exe`**.
+- **Single file:** download **`LarkSync-<version>-Portable.exe`** (same places as above), copy it anywhere and double-click it. First start is a few seconds slower because it unpacks itself to a temporary folder.
+- **Folder:** download **`LarkSync-<version>-Windows.zip`**, extract it anywhere and double-click **`LarkSync.exe`** (faster start-up than the single file).
+
+Your settings live in `%APPDATA%\LarkSync` in every case, so you can switch between the installer and the portable versions without losing anything.
 
 > **Windows SmartScreen:** If you see "Windows protected your PC", click **More info** → **Run anyway**. This happens because the app is not code-signed — it is safe to run.
 
@@ -40,9 +43,10 @@ pip install -r requirements_windows.txt
 # Run in development mode
 python main.py
 
-# Build the .exe (+ .zip)
-build_windows.cmd            # or: python build_windows.py
-# Output: dist\LarkSync\LarkSync.exe
+# Build the .exe files
+build_windows.cmd            # or: python build_windows.py  (--onedir / --onefile for just one)
+# Output: dist\LarkSync\LarkSync.exe  (+ LarkSync-<version>-Windows.zip)
+#         dist\LarkSync-<version>-Portable.exe   (single file)
 
 # Optional: the Setup.exe installer (needs Inno Setup 6.3+, https://jrsoftware.org/isinfo.php)
 iscc /DMyAppVersion=1.1.0 installer\windows\LarkSync.iss
@@ -188,7 +192,7 @@ LarkSync for Windows is functionally **identical** to the macOS version. The onl
 | Click behaviour | Click toggles the menu | Right-click = menu, left-click = Settings |
 | Launch at login | macOS LaunchAgent (.plist, runs `open -a LarkSync.app`) | Windows Registry (`HKCU\...\Run`) |
 | App format | `.app` bundle (py2app) | `.exe` folder (PyInstaller) |
-| Installer | `.dmg` drag-to-Applications | `Setup.exe` (per-user) or ZIP |
+| Installer | `.dmg` drag-to-Applications | `Setup.exe` (per-user), single-file portable `.exe`, or ZIP |
 | Data folder | `~/Library/Application Support/LarkSync` | `%APPDATA%\LarkSync` |
 | About dialog | In Help menu bar | In tray right-click menu |
 

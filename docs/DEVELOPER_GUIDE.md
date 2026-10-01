@@ -468,7 +468,8 @@ The script uses the committed `assets/icon.icns` (set `ICON_SRC=/path/to/1024.pn
 ### Windows
 
 ```powershell
-python build_windows.py                      # dist\LarkSync\ + dist\LarkSync-<version>-Windows.zip
+python build_windows.py                      # dist\LarkSync\ + ...-Windows.zip AND dist\LarkSync-<version>-Portable.exe
+python build_windows.py --onefile            # only the portable single file (--onedir: only the folder)
 dist\LarkSync\LarkSync.exe --selftest        # exit code 0 = OK, details in %APPDATA%\LarkSync\selftest.txt
 iscc /DMyAppVersion=1.1.0 installer\windows\LarkSync.iss     # dist\LarkSync-Setup-1.1.0.exe
 ```

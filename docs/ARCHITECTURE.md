@@ -766,7 +766,8 @@ PyInstaller --windowed --noconfirm --clean main.py
     --add-data …/drive.v3.json;googleapiclient/discovery_cache/documents
     --collect-submodules app / sync
     --icon assets/icon.ico  --version-file build/version_info.txt   (Windows only)
-→ dist/LarkSync/LarkSync.exe  +  dist/LarkSync-<version>-Windows.zip
+→ dist/LarkSync/LarkSync.exe  +  dist/LarkSync-<version>-Windows.zip         (--onedir)
+→ dist/LarkSync-<version>-Portable.exe                                       (--onefile, same options)
 iscc /DMyAppVersion=<version> installer/windows/LarkSync.iss
 → dist/LarkSync-Setup-<version>.exe
 ```
@@ -777,7 +778,7 @@ iscc /DMyAppVersion=<version> installer/windows/LarkSync.iss
 |---|---|---|
 | `test` | ubuntu, macOS, Windows | `pyflakes` + `pytest` (offscreen Qt). The suite includes real LaunchAgent / registry round-trips on their own OS |
 | `build-macos` | macos-14 (Apple Silicon) | `build.sh` (includes `--selftest` of the `.app`), `hdiutil verify`, `codesign --verify`; uploads `LarkSync.dmg` |
-| `build-windows` | windows-latest | `build_windows.py`, `LarkSync.exe --selftest`, Inno Setup; uploads zip + Setup.exe |
+| `build-windows` | windows-latest | `build_windows.py` (folder + portable), `--selftest` of both `.exe`s, Inno Setup; uploads Setup.exe + portable `.exe` + zip |
 | `release` | tags `v*` only | Creates a **draft** GitHub release with the artifacts |
 
 ### Branch strategy

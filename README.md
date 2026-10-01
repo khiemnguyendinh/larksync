@@ -90,7 +90,7 @@ Full list and upgrade notes: **[CHANGELOG.md](CHANGELOG.md)**.
 1. Download **`LarkSync-Setup-<version>.exe`** from [Releases](https://github.com/khiemnguyendinh/larksync/releases) (or the **LarkSync-Windows** artifact of the latest green [Build & Test](https://github.com/khiemnguyendinh/larksync/actions/workflows/build.yml) run).
 2. Run it — it installs for your user only, no administrator rights needed.
 3. Start **LarkSync** from the Start menu; the Setup Wizard will guide you through the rest.
-4. Prefer no installer? Use `LarkSync-<version>-Windows.zip`, extract it and run `LarkSync.exe`.
+4. Prefer no installer? Use the single-file `LarkSync-<version>-Portable.exe` (just run it), or `LarkSync-<version>-Windows.zip` (extract and run `LarkSync.exe`).
 
 > **Note:** The app lives in your system tray (near the clock — click **^** if hidden). **Right-click** the icon for the menu, **left-click** to open Settings. SmartScreen may warn about an unsigned app: **More info → Run anyway**. Details: [Windows guide](Windows_Readme.md).
 
@@ -150,9 +150,9 @@ pip install -r requirements_windows.txt
 # 4. Run in development mode
 python main.py
 
-# 5. Build the .exe (PyInstaller) and zip
+# 5. Build the .exe files (PyInstaller): folder + zip, and a portable single file
 build_windows.cmd
-# Output: dist\LarkSync\LarkSync.exe
+# Output: dist\LarkSync\LarkSync.exe, dist\LarkSync-<version>-Portable.exe
 
 # 6. Optional: the Setup.exe installer (Inno Setup 6.3+)
 iscc /DMyAppVersion=1.1.0 installer\windows\LarkSync.iss
