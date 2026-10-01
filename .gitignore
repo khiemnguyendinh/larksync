@@ -45,3 +45,9 @@ assets/icon_1024.png
 venv/
 .venv/
 env/
+
+# Build tooling / tests
+.build-venv/
+*.spec
+.pytest_cache/
+dist/

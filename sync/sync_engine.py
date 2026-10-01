@@ -4,7 +4,7 @@ Logic chính: traverse Lark Drive → mirror sang Google Drive
 - Mirror cấu trúc folder
 - Export Lark native files sang Google native format
 - Download regular files và upload
-- Overwrite nếu đã tồn tại (dựa trên state file)
+- Overwrite hoặc skip nếu đã tồn tại (dựa trên state file)
 """
 
 import json
@@ -12,10 +12,13 @@ import logging
 import os
 from typing import Optional
 
-from .lark_client import LarkClient, LARK_EXPORT_MAP, LARK_NATIVE_TYPES
+from .lark_client import LarkClient, LARK_EXPORT_MAP, LARK_NATIVE_TYPES, FileTooLarge
 from .google_client import GoogleDriveClient
+from .paths import write_private
 
 logger = logging.getLogger(__name__)
+
+_SAVE_EVERY = 25          # persist the state file every N processed items (crash safety)
 
 
 class SyncEngine:
@@ -30,6 +33,7 @@ class SyncEngine:
         max_file_mb: int = 0,
         sync_mode: str = "full",
         last_sync_ts: Optional[float] = None,
+        conflict: str = "overwrite",
     ):
         self.lark = lark
         self.gdrive = gdrive
@@ -39,7 +43,8 @@ class SyncEngine:
         self.cancel_fn    = cancel_fn     # callable() → bool
         self.max_file_mb  = max_file_mb   # 0 = no limit
         self.sync_mode    = sync_mode     # "incremental" | "full"
-        self.last_sync_ts = last_sync_ts  # epoch seconds of last sync (for incremental)
+        self.last_sync_ts = last_sync_ts  # epoch seconds of last clean sync (for incremental)
+        self.conflict     = conflict      # "overwrite" | "skip" (files already mirrored)
 
         # State structure:
         # {
@@ -54,17 +59,31 @@ class SyncEngine:
 
     def _load_state(self) -> dict:
         if os.path.exists(self.state_path):
-            with open(self.state_path, "r", encoding="utf-8") as f:
-                return json.load(f)
+            try:
+                with open(self.state_path, "r", encoding="utf-8") as f:
+                    state = json.load(f)
+                if isinstance(state, dict):
+                    state.setdefault("folders", {})
+                    state.setdefault("files", {})
+                    return state
+            except (ValueError, OSError):
+                pass
+            logger.warning("State file unreadable — keeping a .bak copy and starting fresh.")
+            try:
+                os.replace(self.state_path, self.state_path + ".bak")
+            except OSError:
+                pass
         return {"folders": {}, "files": {}}
 
     def _save_state(self):
-        with open(self.state_path, "w", encoding="utf-8") as f:
-            json.dump(self.state, f, indent=2, ensure_ascii=False)
+        write_private(self.state_path, json.dumps(self.state, indent=2, ensure_ascii=False))
 
     # ------------------------------------------------------------------
     # Main sync entry
     # ------------------------------------------------------------------
+
+    def _cancelled(self) -> bool:
+        return bool(self.cancel_fn and self.cancel_fn())
 
     def _is_modified_since_last_sync(self, item: dict) -> bool:
         """Check if item was created or modified after last sync timestamp."""
@@ -88,60 +107,81 @@ class SyncEngine:
         return latest > self.last_sync_ts
 
     def run(self):
-        """Run the full sync job."""
+        """
+        Run the full sync job.
+        Returns stats: folders, files_synced, files_skipped, errors,
+        cancelled (bool) and last_error (str | None).
+        """
         mode_label = "INCREMENTAL" if self.sync_mode == "incremental" else "FULL"
         logger.info(f"=== START SYNC ({mode_label}): Lark Drive → Google Drive ===")
 
-        stats = {"folders": 0, "files_synced": 0, "files_skipped": 0, "errors": 0}
+        stats = {"folders": 0, "files_synced": 0, "files_skipped": 0, "errors": 0,
+                 "cancelled": False, "last_error": None}
 
-        if self.progress_cb:
-            self.progress_cb("Traversing Lark Drive…", 0, 0)
-
-        all_items = self.lark.traverse(folder_token="", path="/")
-        total = len(all_items)
-        logger.info(f"Found {total} items")
-
-        for idx, item in enumerate(all_items):
-            if self.cancel_fn and self.cancel_fn():
-                logger.info("Sync cancelled by user.")
-                break
-
-            try:
-                if item["type"] == "folder":
-                    # Always sync folders so the structure is complete
-                    self._sync_folder(item)
-                    stats["folders"] += 1
-                else:
-                    # Incremental: skip files not modified since last sync
-                    if not self._is_modified_since_last_sync(item):
-                        stats["files_skipped"] += 1
-                        if self.progress_cb:
-                            self.progress_cb(
-                                f"[{idx + 1}/{total}] ⏭ {item.get('name', '')}",
-                                idx + 1, total,
-                            )
-                        continue
-
-                    synced = self._sync_file(item)
-                    if synced:
-                        stats["files_synced"] += 1
-                    else:
-                        stats["files_skipped"] += 1
-            except Exception as e:
-                logger.exception(f"Error syncing '{item.get('name')}' ({item.get('token')}): {e}")
-                stats["errors"] += 1
-
+        try:
             if self.progress_cb:
-                self.progress_cb(
-                    f"[{idx + 1}/{total}] {item.get('name', '')}",
-                    idx + 1,
-                    total,
-                )
+                self.progress_cb("Traversing Lark Drive…", 0, 0)
 
-        self._save_state()
+            all_items = self.lark.traverse(folder_token="", path="/", cancel_fn=self.cancel_fn)
+            total = len(all_items)
+            logger.info(f"Found {total} items")
+
+            if self._cancelled():
+                stats["cancelled"] = True
+                logger.info("Sync cancelled by user.")
+                return stats
+
+            for idx, item in enumerate(all_items):
+                if self._cancelled():
+                    stats["cancelled"] = True
+                    logger.info("Sync cancelled by user.")
+                    break
+
+                try:
+                    if item["type"] == "folder":
+                        # Always sync folders so the structure is complete
+                        self._sync_folder(item)
+                        stats["folders"] += 1
+                    else:
+                        # Incremental: skip files not modified since last sync
+                        if not self._is_modified_since_last_sync(item):
+                            stats["files_skipped"] += 1
+                            if self.progress_cb:
+                                self.progress_cb(
+                                    f"[{idx + 1}/{total}] ⏭ {item.get('name', '')}",
+                                    idx + 1, total,
+                                )
+                            continue
+
+                        synced = self._sync_file(item)
+                        if synced:
+                            stats["files_synced"] += 1
+                        else:
+                            stats["files_skipped"] += 1
+                except FileTooLarge as e:
+                    stats["files_skipped"] += 1
+                    logger.warning(f"Skipping large file '{item.get('name')}': {e}")
+                except Exception as e:
+                    logger.exception(f"Error syncing '{item.get('name')}' ({item.get('token')}): {e}")
+                    stats["errors"] += 1
+                    stats["last_error"] = f"{item.get('name')}: {e}"
+
+                if (idx + 1) % _SAVE_EVERY == 0:
+                    self._save_state()
+
+                if self.progress_cb:
+                    self.progress_cb(
+                        f"[{idx + 1}/{total}] {item.get('name', '')}",
+                        idx + 1,
+                        total,
+                    )
+        finally:
+            # Persist what we have even on cancel / unexpected failure, otherwise the
+            # next run would upload duplicates of everything done so far.
+            self._save_state()
 
         logger.info(
-            f"=== SYNC COMPLETE ===\n"
+            f"=== SYNC {'CANCELLED' if stats['cancelled'] else 'COMPLETE'} ===\n"
             f"  Folders: {stats['folders']}\n"
             f"  Files synced: {stats['files_synced']}\n"
             f"  Files skipped: {stats['files_skipped']}\n"
@@ -189,6 +229,10 @@ class SyncEngine:
         file_type = item["type"]
         parent_token = item.get("parent_token", "")
 
+        if file_type == "shortcut":
+            logger.info(f"[FILE] Skipping Lark shortcut '{name}' (the target is synced from its own folder)")
+            return False
+
         # Xác định parent GDrive folder ID
         if parent_token == "":
             parent_gdrive_id = self.gdrive_root_folder_id
@@ -198,18 +242,14 @@ class SyncEngine:
                 logger.warning(f"Parent folder chưa sync: {parent_token}, skip file '{name}'")
                 return False
 
-        # Skip files that exceed the size limit (size field may not always be present)
-        if self.max_file_mb > 0:
-            size_bytes = item.get("size", 0)
-            if size_bytes and size_bytes > self.max_file_mb * 1024 * 1024:
-                logger.warning(
-                    f"Skipping large file '{name}' "
-                    f"({size_bytes / 1024 / 1024:.1f} MB > {self.max_file_mb} MB limit)"
-                )
-                return False
-
         # Kiểm tra existing GDrive file ID (để overwrite)
         existing_gdrive_id = self.state["files"].get(token)
+
+        if existing_gdrive_id and self.conflict == "skip":
+            logger.debug(f"[FILE] Already mirrored, keeping existing: {name}")
+            return False
+
+        max_bytes = self.max_file_mb * 1024 * 1024 if self.max_file_mb > 0 else 0
 
         # Xác định extension và tên file đích
         if file_type in LARK_NATIVE_TYPES:
@@ -227,7 +267,7 @@ class SyncEngine:
         if file_type in LARK_NATIVE_TYPES:
             content = self.lark.export_native_file(token, file_type)
         else:
-            content = self.lark.download_file(token)
+            content = self.lark.download_file(token, max_bytes=max_bytes)
 
             # .url shortcut files: parse URL → resolve to a real Lark doc token and export
             if name.lower().endswith(".url") or (content and content[:4] == b"[Int"):

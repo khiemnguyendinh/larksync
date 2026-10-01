@@ -1,22 +1,29 @@
 """
 Config Manager
-Reads/writes app_config.json in ~/Documents/lark_gdrive_sync/
+Reads/writes app_config.json in the per-user data folder (see sync/paths.py).
 All user data stays in that folder — never inside the .app bundle.
 """
 
 import json
+import logging
 import os
-from pathlib import Path
+import threading
 from typing import Any
 
-APP_DIR        = Path.home() / "Documents" / "lark_gdrive_sync"
-CONFIG_FILE    = APP_DIR / "app_config.json"
-LOG_FILE       = APP_DIR / "sync.log"
-STATE_FILE     = APP_DIR / "sync_state.json"
-LARK_TOKEN     = APP_DIR / "lark_token.json"
-GOOGLE_TOKEN   = APP_DIR / "google_token.pkl"
-GOOGLE_CREDS   = APP_DIR / "credentials.json"
-LOCK_FILE      = Path.home() / ".larksync.lock"
+from sync.paths import (
+    APP_DIR, CONFIG_FILE, LOG_FILE, STATE_FILE, LARK_TOKEN, GOOGLE_TOKEN,
+    GOOGLE_CREDS, LOCK_FILE, INSTANCE_LOCK_FILE,
+    ensure_app_dir, migrate_legacy_data, write_private,
+)
+
+# The path constants are re-exported: the UI modules import them from here.
+__all__ = [
+    "ConfigManager", "DEFAULTS",
+    "APP_DIR", "CONFIG_FILE", "LOG_FILE", "STATE_FILE", "LARK_TOKEN",
+    "GOOGLE_TOKEN", "GOOGLE_CREDS", "LOCK_FILE", "INSTANCE_LOCK_FILE",
+]
+
+logger = logging.getLogger(__name__)
 
 DEFAULTS: dict = {
     "lark_app_id":          "",
@@ -33,123 +40,96 @@ DEFAULTS: dict = {
     "launch_at_login":      False,
     "show_progress":        True,
     "first_run":            True,
-    "last_sync":            None,
+    # Sync bookkeeping (written by SyncThread)
+    "last_sync":            None,   # ISO time of the last sync that actually ran to the end
+    "last_sync_clean":      None,   # ISO start time of the last sync with 0 errors → incremental watermark
+    "last_attempt":         None,   # ISO time of the last attempt, whatever its outcome
+    "fail_streak":          0,      # consecutive attempts that failed before syncing anything
+    "schedule_anchor":      None,   # ISO time the schedule was first armed (see scheduler.py)
     "last_sync_stats":      None,
 }
 
 
 class ConfigManager:
     def __init__(self):
-        APP_DIR.mkdir(parents=True, exist_ok=True)
+        ensure_app_dir()
+        # v1.0.x kept its data in ~/Documents/lark_gdrive_sync — copy it over once.
+        if "LARKSYNC_HOME" not in os.environ:
+            try:
+                migrate_legacy_data()
+            except Exception:                       # never block start-up on migration
+                logger.exception("Legacy data migration failed")
+
+        self._lock = threading.RLock()              # SyncThread writes from a worker thread
         self._data: dict = dict(DEFAULTS)
         if CONFIG_FILE.exists():
             try:
                 with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                     saved = json.load(f)
+                if not isinstance(saved, dict):
+                    raise ValueError("config root is not an object")
                 self._data.update(saved)
-            except (json.JSONDecodeError, OSError):
-                # Corrupted config → start fresh
-                pass
+            except (ValueError, OSError):
+                # Corrupted config → keep a copy for the user, start fresh
+                try:
+                    os.replace(CONFIG_FILE, CONFIG_FILE.with_suffix(".json.bak"))
+                except OSError:
+                    pass
 
     # ------------------------------------------------------------------
     # Read / Write
     # ------------------------------------------------------------------
 
     def get(self, key: str, default: Any = None) -> Any:
-        return self._data.get(key, default)
+        with self._lock:
+            return self._data.get(key, default)
 
     def set(self, key: str, value: Any) -> None:
-        self._data[key] = value
-        self._save()
+        with self._lock:
+            self._data[key] = value
+            self._save()
 
     def update(self, updates: dict) -> None:
-        self._data.update(updates)
-        self._save()
+        with self._lock:
+            self._data.update(updates)
+            self._save()
 
     def _save(self) -> None:
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(self._data, f, indent=2, default=str, ensure_ascii=False)
+        # Contains the Lark App Secret → atomic write, owner-only permissions.
+        write_private(
+            CONFIG_FILE,
+            json.dumps(self._data, indent=2, default=str, ensure_ascii=False),
+        )
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
     def is_first_run(self) -> bool:
-        return bool(self._data.get("first_run", True))
+        return bool(self.get("first_run", True))
 
     def mark_setup_complete(self) -> None:
         self.set("first_run", False)
 
     def is_lark_configured(self) -> bool:
-        return bool(self._data.get("lark_app_id") and
-                    self._data.get("lark_app_secret") and
+        return bool(self.get("lark_app_id") and
+                    self.get("lark_app_secret") and
                     LARK_TOKEN.exists())
 
     def is_google_configured(self) -> bool:
-        return GOOGLE_CREDS.exists() and GOOGLE_TOKEN.exists()
+        from sync.paths import LEGACY_GOOGLE_TOKEN
+        return GOOGLE_CREDS.exists() and (GOOGLE_TOKEN.exists() or LEGACY_GOOGLE_TOKEN.exists())
 
     def is_fully_configured(self) -> bool:
         return self.is_lark_configured() and self.is_google_configured()
 
     # ------------------------------------------------------------------
-    # Launch at login (macOS LaunchAgent)
+    # Launch at login (macOS LaunchAgent / Windows Run key)
     # ------------------------------------------------------------------
 
-    def set_launch_at_login(self, enabled: bool) -> None:
-        self.set("launch_at_login", enabled)
-        app_path   = _get_app_executable()
-        
-        import sys
-        if sys.platform == "win32":
-            import winreg
-            key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
-            try:
-                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE)
-                if enabled and app_path:
-                    winreg.SetValueEx(key, "LarkSync", 0, winreg.REG_SZ, f'"{app_path}"')
-                else:
-                    try:
-                        winreg.DeleteValue(key, "LarkSync")
-                    except OSError:
-                        pass
-                winreg.CloseKey(key)
-            except Exception as e:
-                import logging
-                logging.getLogger(__name__).warning(f"Failed to set Windows startup: {e}")
-            return
-
-        plist_dir  = Path.home() / "Library" / "LaunchAgents"
-        plist_path = plist_dir / "com.larksync.agent.plist"
-
-        if enabled and app_path:
-            plist_dir.mkdir(parents=True, exist_ok=True)
-            plist = f"""<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>         <string>com.larksync.agent</string>
-    <key>ProgramArguments</key>
-    <array><string>{app_path}</string></array>
-    <key>RunAtLoad</key>     <true/>
-    <key>KeepAlive</key>     <false/>
-</dict>
-</plist>"""
-            plist_path.write_text(plist)
-            os.system(f'launchctl load "{plist_path}"')
-        else:
-            if plist_path.exists():
-                os.system(f'launchctl unload "{plist_path}"')
-                plist_path.unlink(missing_ok=True)
-
-
-def _get_app_executable():  # -> Optional[str]
-    """Return path to the running executable (works inside .app bundle too)."""
-    import sys
-    exe = sys.executable
-    if getattr(sys, 'frozen', False):
-        return exe
-    # Inside py2app bundle: .../LarkSync.app/Contents/MacOS/LarkSync
-    if "LarkSync.app" in exe:
-        return exe
-    return exe  # dev mode: just use python interpreter path
+    def set_launch_at_login(self, enabled: bool) -> bool:
+        """Persist the preference and apply it to the OS. Returns True if the OS accepted it."""
+        from app import autostart
+        ok = autostart.set_enabled(enabled)
+        self.set("launch_at_login", bool(enabled) if ok else autostart.is_enabled())
+        return ok

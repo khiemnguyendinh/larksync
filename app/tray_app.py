@@ -1,25 +1,27 @@
 """
 Tray App
-QSystemTrayIcon menu bar app — lives in Mac menu bar.
-Handles: manual sync, weekly scheduler, status display, settings access.
-Listens for Mac sleep/wake to reschedule missed syncs.
+QSystemTrayIcon app — lives in the macOS menu bar / Windows system tray.
+Handles: manual sync, scheduler (with catch-up after sleep / shutdown),
+status display, settings access.
 """
 
 import logging
+import math
 import time
-from datetime import datetime, timedelta
-from pathlib import Path
+from datetime import datetime
 
-from PyQt6.QtCore    import QTimer, Qt, QObject, pyqtSlot
-from PyQt6.QtGui     import QIcon, QPixmap, QPainter, QColor, QFont, QAction
-from PyQt6.QtWidgets import (
-    QApplication, QSystemTrayIcon, QMenu, QMessageBox, QWidget
-)
+from PyQt6.QtCore    import QTimer, Qt, QObject, QPointF, QRectF, pyqtSlot
+from PyQt6.QtGui     import (QIcon, QPixmap, QPainter, QColor, QFont, QAction,
+                             QPen, QPolygonF)
+from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 
-from app.config_manager import ConfigManager, APP_DIR
-from app.sync_thread    import SyncThread
+from app.config_manager  import ConfigManager, LOG_FILE
+from app.platform_utils  import IS_MAC, tray_location_hint
+from app.scheduler       import should_run, next_due, parse_iso
+from app.sync_thread     import SyncThread
 from app.settings_dialog import SettingsDialog
 from app.log_viewer      import LogViewer
+from app.version         import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +35,7 @@ class TrayApp(QObject):
         self.app     = app
         self._thread: SyncThread | None = None
         self._syncing = False
+        self._cancelling = False
         self._settings_dlg = None  # singleton guard
         self._menu_hidden_at: float = 0.0  # monotonic timestamp of last menu hide
 
@@ -48,16 +51,24 @@ class TrayApp(QObject):
         # same click that dismissed it (macOS hides before `activated` fires).
         self._menu.aboutToHide.connect(self._on_menu_hidden)
         self._build_menu()
-        # Do NOT call setContextMenu: on macOS, Qt shows the context menu on
-        # every left-click independently of the `activated` signal, which
-        # prevents toggle-close behaviour.  We manage show/hide exclusively
-        # through _on_tray_clicked → popup() / hide().
+        if IS_MAC:
+            # Do NOT call setContextMenu on macOS: Qt shows the context menu on
+            # every left-click independently of the `activated` signal, which
+            # prevents toggle-close behaviour.  We manage show/hide exclusively
+            # through _on_tray_clicked → popup() / hide().
+            pass
+        else:
+            # Windows (and Linux): the native context menu is what makes
+            # right-click work and what closes the menu when you click away.
+            self._tray.setContextMenu(self._menu)
         self._tray.show()
 
         # ── Scheduler ─────────────────────────────────────────────────
+        # Polled every minute, so a missed slot is caught up within a minute of
+        # the computer waking from sleep / being switched back on.
         self._scheduler_timer = QTimer()
         self._scheduler_timer.timeout.connect(self._check_schedule)
-        self._scheduler_timer.start(60_000)  # check every minute
+        self._scheduler_timer.start(60_000)
         self._check_schedule()               # also check immediately on launch
 
     # ── Menu construction ─────────────────────────────────────────────
@@ -67,7 +78,7 @@ class TrayApp(QObject):
         self._menu.setStyleSheet("font-size: 13px;")
 
         # Title (non-interactive)
-        title = QAction("LarkSync", self._menu)
+        title = QAction(f"LarkSync {__version__}", self._menu)
         title.setEnabled(False)
         title.setFont(self._bold_font())
         self._menu.addAction(title)
@@ -75,12 +86,14 @@ class TrayApp(QObject):
 
         # Sync Now / Cancel
         if self._syncing:
-            self._sync_action = QAction("⟳  Syncing…", self._menu)
+            self._sync_action = QAction(
+                "⟳  Cancelling…" if self._cancelling else "⟳  Syncing…", self._menu)
             self._sync_action.setEnabled(False)
             self._menu.addAction(self._sync_action)
-            cancel = QAction("Cancel Sync", self._menu)
-            cancel.triggered.connect(self._cancel_sync)
-            self._menu.addAction(cancel)
+            if not self._cancelling:
+                cancel = QAction("Cancel Sync", self._menu)
+                cancel.triggered.connect(self._cancel_sync)
+                self._menu.addAction(cancel)
         else:
             self._sync_action = QAction("Sync Now", self._menu)
             self._sync_action.triggered.connect(self._start_sync)
@@ -107,8 +120,7 @@ class TrayApp(QObject):
         log_action.triggered.connect(self._open_log)
         self._menu.addAction(log_action)
 
-        import sys
-        if sys.platform != "darwin":
+        if not IS_MAC:
             self._menu.addSeparator()
             about_action = QAction("About LarkSync", self._menu)
             about_action.triggered.connect(self._open_about)
@@ -129,13 +141,16 @@ class TrayApp(QObject):
     def _start_sync(self):
         if self._syncing:
             return
+        # A previous run is still winding down (e.g. cancelled): never replace a live QThread.
+        if self._thread is not None and self._thread.isRunning():
+            return
         self._syncing = True
+        self._cancelling = False
         self._refresh_menu()
 
         self._thread = SyncThread(self.config)
         self._thread.progress.connect(self._on_progress)
-        self._thread.finished.connect(self._on_finished)
-        self._thread.error.connect(self._on_error)
+        self._thread.completed.connect(self._on_completed)
         self._thread.start()
 
         self._tray.showMessage(
@@ -144,24 +159,41 @@ class TrayApp(QObject):
         )
 
     def _cancel_sync(self):
-        if self._thread:
+        """Ask the worker to stop. The UI stays in 'busy' until the worker really ends,
+        otherwise a second sync could be started on top of the first."""
+        if self._thread and self._syncing and not self._cancelling:
+            self._cancelling = True
             self._thread.cancel()
-        self._syncing = False
-        self._refresh_menu()
+            self._refresh_menu()
 
     @pyqtSlot(str)
     def _on_progress(self, msg: str):
         self._tray.setToolTip(f"LarkSync — {msg}")
 
     @pyqtSlot(dict)
-    def _on_finished(self, stats: dict):
+    def _on_completed(self, stats: dict):
         self._syncing = False
+        self._cancelling = False
         self._refresh_menu()
+        self._tray.setToolTip("LarkSync")
+
         errors = stats.get("errors", 0)
         synced = stats.get("files_synced", 0)
         dur    = self._fmt_duration(stats.get("duration_seconds", 0))
+        fatal  = stats.get("fatal_error")
 
-        if errors == 0:
+        if fatal:
+            self._tray.showMessage(
+                "LarkSync — Error", str(fatal)[:200],
+                QSystemTrayIcon.MessageIcon.Critical, 6000
+            )
+        elif stats.get("cancelled"):
+            self._tray.showMessage(
+                "LarkSync — Cancelled",
+                f"Stopped after {synced} files. Nothing is lost — the next sync continues.",
+                QSystemTrayIcon.MessageIcon.Information, 4000
+            )
+        elif errors == 0:
             self._tray.showMessage(
                 "LarkSync — Done",
                 f"{synced} files synced in {dur}.",
@@ -173,79 +205,54 @@ class TrayApp(QObject):
                 f"{synced} synced, {errors} errors. Check View Log for details.",
                 QSystemTrayIcon.MessageIcon.Warning, 5000
             )
-        self._tray.setToolTip("LarkSync")
-
-    @pyqtSlot(str)
-    def _on_error(self, msg: str):
-        self._syncing = False
-        self._refresh_menu()
-        self._tray.showMessage(
-            "LarkSync — Error",
-            msg[:120],
-            QSystemTrayIcon.MessageIcon.Critical, 6000
-        )
-        self._tray.setToolTip("LarkSync")
 
     # ── Scheduler ─────────────────────────────────────────────────────
+
+    def _schedule_args(self):
+        return (
+            self.config.get("schedule", "weekly"),
+            self.config.get("schedule_day", "Monday"),
+            self.config.get("schedule_hour", 8),
+            self.config.get("schedule_minute", 0),
+        )
 
     def _check_schedule(self):
         sched = self.config.get("schedule", "weekly")
         if sched == "manual" or self._syncing:
             return
 
-        now      = datetime.now()
-        last_str = self.config.get("last_sync")
-        last     = datetime.fromisoformat(last_str) if last_str else None
+        now  = datetime.now()
+        last = parse_iso(self.config.get("last_sync"))
 
-        # Never auto-sync on first launch (no prior sync recorded)
-        if last is None:
+        # A brand-new install must not start a surprise full sync. Arm the schedule
+        # from "now" instead: the first run happens at the next scheduled slot.
+        # (v1.0.x never scheduled anything until the user had synced manually once.)
+        anchor = parse_iso(self.config.get("schedule_anchor"))
+        if last is None and anchor is None:
+            self.config.set("schedule_anchor", now.isoformat())
             return
 
-        if sched == "daily":
-            hour   = self.config.get("schedule_hour", 8)
-            target = now.replace(hour=hour, minute=0, second=0, microsecond=0)
-            if now >= target and last.date() < now.date():
-                self._start_sync()
-
-        elif sched == "weekly":
-            day_names = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
-            target_day  = self.config.get("schedule_day", "Monday")
-            target_hour = self.config.get("schedule_hour", 8)
-            target_dow  = day_names.index(target_day)
-
-            if (now.weekday() == target_dow and
-                    now.hour >= target_hour and
-                    (now - last).days >= 6):
-                self._start_sync()
+        if should_run(
+            now, *self._schedule_args(),
+            last_sync    = last,
+            anchor       = anchor,
+            last_attempt = parse_iso(self.config.get("last_attempt")),
+            fail_streak  = int(self.config.get("fail_streak", 0) or 0),
+        ):
+            logger.info("Scheduled sync starting")
+            self._start_sync()
 
     def _next_sync_str(self) -> str:
-        sched = self.config.get("schedule", "weekly")
-        if sched == "manual":
+        nxt = next_due(datetime.now(), *self._schedule_args())
+        if nxt is None:
             return "Manual only"
-        now  = datetime.now()
-        hour = self.config.get("schedule_hour", 8)
-        if sched == "daily":
-            t = now.replace(hour=hour, minute=0, second=0, microsecond=0)
-            if t <= now:
-                t += timedelta(days=1)
-            return t.strftime("%b %d, %H:%M")
-        # weekly
-        day_names = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
-        target_day = self.config.get("schedule_day", "Monday")
-        target_dow = day_names.index(target_day)
-        days_ahead = (target_dow - now.weekday()) % 7 or 7
-        t = (now + timedelta(days=days_ahead)).replace(hour=hour, minute=0, second=0, microsecond=0)
-        return t.strftime("%a %b %d, %H:%M")
+        return nxt.strftime("%a %b %d, %H:%M")
 
     def _last_sync_str(self) -> str:
-        last_str = self.config.get("last_sync")
-        if not last_str:
+        last = parse_iso(self.config.get("last_sync"))
+        if not self.config.get("last_sync"):
             return "Never"
-        try:
-            dt = datetime.fromisoformat(last_str)
-            return dt.strftime("%b %d, %H:%M")
-        except Exception:
-            return "Unknown"
+        return last.strftime("%b %d, %H:%M") if last else "Unknown"
 
     # ── UI actions ────────────────────────────────────────────────────
 
@@ -254,27 +261,35 @@ class TrayApp(QObject):
         self._menu_hidden_at = time.monotonic()
 
     def _on_tray_clicked(self, reason):
-        if reason == QSystemTrayIcon.ActivationReason.Trigger:
-            # On macOS, the system dismisses the menu *before* `activated` fires,
-            # so isVisible() is already False by the time we get here on a
-            # second click.  Guard: if the menu was hidden within the last 350 ms
-            # the click that closed it is the same physical click → don't reopen.
-            if time.monotonic() - self._menu_hidden_at < 0.35:
-                return
-            if self._menu.isVisible():
-                self._menu.hide()
-            else:
-                self._menu.popup(self._tray.geometry().topLeft())
+        if IS_MAC:
+            if reason == QSystemTrayIcon.ActivationReason.Trigger:
+                # On macOS, the system dismisses the menu *before* `activated` fires,
+                # so isVisible() is already False by the time we get here on a
+                # second click.  Guard: if the menu was hidden within the last 350 ms
+                # the click that closed it is the same physical click → don't reopen.
+                if time.monotonic() - self._menu_hidden_at < 0.35:
+                    return
+                if self._menu.isVisible():
+                    self._menu.hide()
+                else:
+                    self._menu.popup(self._tray.geometry().topLeft())
+            return
+
+        # Windows / Linux: right-click shows the native context menu (set above);
+        # a left-click or double-click opens Settings.
+        if reason in (QSystemTrayIcon.ActivationReason.Trigger,
+                      QSystemTrayIcon.ActivationReason.DoubleClick):
+            self._open_settings()
 
     def show_ready(self, first_time: bool = False):
-        """Show an orientation notification so users can find the menu bar icon."""
+        """Show an orientation notification so users can find the tray icon."""
+        where = tray_location_hint()
         if first_time:
             title = "LarkSync is ready"
-            body  = ("Setup complete! LarkSync is now running in your menu bar — "
-                     "look for the ⟳ icon at the top-right of your screen.")
+            body  = f"Setup complete! LarkSync is now running in your {where}."
         else:
             title = "LarkSync is running"
-            body  = ("Click the ⟳ icon in the menu bar (top-right of screen) "
+            body  = (f"Find the ⟳ icon in your {where} "
                      "to sync, view logs, or open settings.")
         self._tray.showMessage(
             title, body,
@@ -294,56 +309,64 @@ class TrayApp(QObject):
         self._refresh_menu()  # schedule may have changed
 
     def _open_log(self):
-        viewer = LogViewer(str(APP_DIR / "sync.log"))
+        viewer = LogViewer(str(LOG_FILE))
         viewer.exec()
 
     def _open_about(self):
-        import sys
-        if sys.platform != "darwin":
-            from app.win_menu import _show_about
-            _show_about()
+        from app.about_dialog import show_about
+        show_about()
 
     def _quit(self):
-        if self._syncing and self._thread:
-            self._thread.cancel()
-            self._thread.wait(3000)
+        t = self._thread
+        if t is not None and t.isRunning():
+            t.cancel()
+            if not t.wait(8000):          # stuck in a long export: don't hang the quit
+                t.terminate()
+                t.wait(1000)
         self.app.quit()
+
+    def has_open_dialog(self) -> bool:
+        return self._settings_dlg is not None or self.app.activeModalWidget() is not None
 
     # ── Icon generation ───────────────────────────────────────────────
 
     def _make_icon(self, idle: bool = True) -> QIcon:
         """
-        Draw a menu bar icon that works on macOS Retina + light/dark mode.
-        Uses black strokes on transparent background — macOS treats these
-        as template images and inverts automatically in dark mode.
+        Draw the tray icon.
+        macOS  : black strokes on transparent, flagged as a template image, so
+                 the system recolors it for light / dark menu bars.
+        Windows: a template does not exist there and black-on-dark-taskbar is
+                 invisible, so draw in brand blue (readable on light and dark).
         """
-        # Use 2x resolution for Retina displays
-        logical = 18
-        scale   = 2
-        size    = logical * scale
+        logical = 18                       # drawing coordinate space
+        if IS_MAC:
+            px_size, dpr = logical * 2, 2  # Retina
+            pen_color = QColor(0, 0, 0, 220) if idle else QColor(0, 0, 0, 140)
+            width = 1.6
+        else:
+            px_size, dpr = 64, 1           # Windows scales 16–32 px from this
+            pen_color = QColor(0, 122, 255) if idle else QColor(255, 149, 0)
+            width = 2.0
 
-        px = QPixmap(size, size)
-        px.setDevicePixelRatio(scale)
+        px = QPixmap(px_size, px_size)
+        px.setDevicePixelRatio(dpr)
         px.fill(Qt.GlobalColor.transparent)
 
         p = QPainter(px)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if not IS_MAC:
+            p.scale(px_size / logical, px_size / logical)
 
-        from PyQt6.QtGui import QPen
-        # Black strokes → macOS inverts to white in dark menu bar
-        pen_color = QColor(0, 0, 0, 220) if idle else QColor(0, 0, 0, 140)
         pen = QPen(pen_color)
-        pen.setWidthF(1.6)
+        pen.setWidthF(width)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         p.setPen(pen)
         p.setBrush(Qt.BrushStyle.NoBrush)
 
         # Draw circular arrows (sync icon)
-        from PyQt6.QtCore import QRectF
-        import math
         cx, cy, r = logical / 2, logical / 2, 5.5
 
-        # Arc — 270° sweep leaving a gap for arrowhead
+        # Arc — 300° sweep leaving a gap for arrowhead
         p.drawArc(
             QRectF(cx - r, cy - r, r * 2, r * 2),
             30 * 16,    # start angle (Qt uses 1/16 degree)
@@ -354,8 +377,6 @@ class TrayApp(QObject):
         end_angle = math.radians(30)
         ax = cx + r * math.cos(end_angle)
         ay = cy - r * math.sin(end_angle)
-        from PyQt6.QtCore import QPointF
-        from PyQt6.QtGui  import QPolygonF
         head_size = 2.8
         tip   = QPointF(ax, ay)
         left  = QPointF(ax - head_size * math.cos(end_angle + math.radians(150)),
@@ -369,11 +390,11 @@ class TrayApp(QObject):
         p.end()
 
         icon = QIcon(px)
-        # Mark as template so macOS auto-inverts for dark menu bar
-        try:
-            icon.setIsMask(True)
-        except AttributeError:
-            pass
+        if IS_MAC:
+            try:
+                icon.setIsMask(True)       # template image → auto-inverts in dark mode
+            except AttributeError:
+                pass
         return icon
 
     # ── Helpers ───────────────────────────────────────────────────────

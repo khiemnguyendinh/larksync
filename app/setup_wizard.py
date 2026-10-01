@@ -4,23 +4,29 @@ Setup Wizard
 Collapsible help panels, inline validation, footer branding.
 """
 
+import json
 import shutil
-import webbrowser
+from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore    import Qt, QTimer, pyqtSlot
-from PyQt6.QtGui     import QFont, QColor, QPalette
+from PyQt6.QtCore    import Qt, pyqtSlot
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QComboBox, QFileDialog, QFrame, QStackedWidget,
-    QWidget, QScrollArea, QSizePolicy, QSpacerItem,
+    QWidget, QScrollArea, QMessageBox,
 )
 
 from app.config_manager import (
     ConfigManager, APP_DIR, GOOGLE_CREDS, LARK_TOKEN, GOOGLE_TOKEN
 )
+from app.oauth_worker import LarkAuthWorker, GoogleAuthWorker
+from sync.paths import LEGACY_GOOGLE_TOKEN
 
 FOOTER_TEXT = "Sponsored by Kstudy Academy · www.kstudy.edu.vn"
+LARK_CHAT_ID_HELP = (
+    "https://open.larksuite.com/document/client-docs/bot-5/"
+    "add-a-bot-to-a-group-and-get-the-group-id"
+)
 LARK_DEV_URL   = "https://open.larksuite.com/app"
 GOOGLE_DEV_URL = "https://console.cloud.google.com"
 
@@ -251,9 +257,6 @@ class SetupWizard(QDialog):
 
     # ── Navigation ────────────────────────────────────────────────────
 
-    def _go_to(self, idx: int):
-        self._stack.setCurrentIndex(idx)
-
     # ── Step 1: Lark ──────────────────────────────────────────────────
 
     def _build_step1(self) -> QWidget:
@@ -293,11 +296,11 @@ class SetupWizard(QDialog):
 
         # Auth button + status
         auth_row = QHBoxLayout()
-        auth_btn = _btn("Authorize Lark →")
-        auth_btn.clicked.connect(self._authorize_lark)
+        self._lark_auth_btn = _btn("Authorize Lark →")
+        self._lark_auth_btn.clicked.connect(self._authorize_lark)
         self._lark_status = _status_label()
         self._refresh_lark_status()
-        auth_row.addWidget(auth_btn)
+        auth_row.addWidget(self._lark_auth_btn)
         auth_row.addStretch()
         auth_row.addWidget(self._lark_status)
         layout.addLayout(auth_row)
@@ -308,11 +311,19 @@ class SetupWizard(QDialog):
         nav = QHBoxLayout()
         nav.addStretch()
         nxt = _btn("Next →", primary=True)
-        nxt.clicked.connect(lambda: self._go_to(1))
+        nxt.clicked.connect(self._step1_next)
         nav.addWidget(nxt)
         layout.addLayout(nav)
 
         return page
+
+    def _step1_next(self):
+        # Keep what was typed even if the user skips "Authorize" for now.
+        self.config.update({
+            "lark_app_id":     self._lark_app_id.text().strip(),
+            "lark_app_secret": self._lark_secret.text().strip(),
+        })
+        self._go_to(1)
 
     def _authorize_lark(self):
         app_id = self._lark_app_id.text().strip()
@@ -324,27 +335,38 @@ class SetupWizard(QDialog):
         # Save creds first
         self.config.update({"lark_app_id": app_id, "lark_app_secret": secret})
 
-        # Launch OAuth in browser
-        try:
-            import sys, importlib
-            sys.path.insert(0, str(Path(__file__).parent.parent))
-            from sync import lark_auth
-            importlib.reload(lark_auth)
-            lark_auth.authorize_async(on_success=self._on_lark_auth_success,
-                                      on_error=self._on_lark_auth_error)
-            self._lark_status.setText("⏳ Waiting for browser…")
-            self._lark_status.setStyleSheet("color:#888; font-size:11px;")
-        except Exception as e:
-            self._on_lark_auth_error(str(e))
+        if getattr(self, "_lark_worker", None) is not None:
+            return                                   # already waiting for the browser
+
+        # Runs on a worker thread so the wizard stays responsive while the browser is open.
+        self._lark_status.setText("⏳ Waiting for browser…")
+        self._lark_status.setStyleSheet("color:#888; font-size:11px;")
+        self._lark_auth_btn.setEnabled(False)
+        worker = LarkAuthWorker()
+        worker.succeeded.connect(self._on_lark_auth_success)
+        worker.failed.connect(self._on_lark_auth_error)
+        self._lark_worker = worker
+        worker.start()
 
     @pyqtSlot()
     def _on_lark_auth_success(self):
+        self._lark_worker = None
+        self._lark_auth_btn.setEnabled(True)
         self._refresh_lark_status()
 
     @pyqtSlot(str)
     def _on_lark_auth_error(self, msg: str):
-        self._lark_status.setText(f"✕ {msg[:40]}")
+        self._lark_worker = None
+        self._lark_auth_btn.setEnabled(True)
+        self._lark_status.setText(f"✕ {msg[:60]}")
         self._lark_status.setStyleSheet("color:#FF3B30; font-size:11px; font-weight:600;")
+
+    def reject(self):
+        # Closing the wizard mid sign-in must release the local callback port.
+        worker = getattr(self, "_lark_worker", None)
+        if worker is not None:
+            worker.cancel()
+        super().reject()
 
     def _refresh_lark_status(self):
         if LARK_TOKEN.exists():
@@ -441,11 +463,11 @@ class SetupWizard(QDialog):
 
         # Auth button
         auth_row = QHBoxLayout()
-        auth_btn = _btn("Authorize Google →")
-        auth_btn.clicked.connect(self._authorize_google)
+        self._google_auth_btn = _btn("Authorize Google →")
+        self._google_auth_btn.clicked.connect(self._authorize_google)
         self._google_status = _status_label()
         self._refresh_google_status()
-        auth_row.addWidget(auth_btn)
+        auth_row.addWidget(self._google_auth_btn)
         auth_row.addStretch()
         auth_row.addWidget(self._google_status)
         layout.addLayout(auth_row)
@@ -472,9 +494,8 @@ class SetupWizard(QDialog):
         if not path:
             return
         # Validate it's a Google OAuth credentials file
-        import json
         try:
-            with open(path) as f:
+            with open(path, encoding="utf-8") as f:
                 data = json.load(f)
             if "installed" not in data and "web" not in data:
                 raise ValueError("Not a valid credentials file")
@@ -497,19 +518,32 @@ class SetupWizard(QDialog):
             self._google_status.setText("⚠ Select credentials.json first")
             self._google_status.setStyleSheet("color:#FF9500; font-size:11px; font-weight:600;")
             return
+        if getattr(self, "_google_worker", None) is not None:
+            return
         self._google_status.setText("⏳ Opening browser…")
         self._google_status.setStyleSheet("color:#888; font-size:11px;")
-        try:
-            from sync.google_client import GoogleDriveClient
-            client = GoogleDriveClient(str(GOOGLE_CREDS), str(GOOGLE_TOKEN))
-            client.get_service()  # triggers OAuth flow
-            self._refresh_google_status()
-        except Exception as e:
-            self._google_status.setText(f"✕ {str(e)[:40]}")
-            self._google_status.setStyleSheet("color:#FF3B30; font-size:11px; font-weight:600;")
+        self._google_auth_btn.setEnabled(False)
+        worker = GoogleAuthWorker(str(GOOGLE_CREDS), str(GOOGLE_TOKEN))
+        worker.succeeded.connect(self._on_google_auth_success)
+        worker.failed.connect(self._on_google_auth_error)
+        self._google_worker = worker
+        worker.start()
+
+    @pyqtSlot()
+    def _on_google_auth_success(self):
+        self._google_worker = None
+        self._google_auth_btn.setEnabled(True)
+        self._refresh_google_status()
+
+    @pyqtSlot(str)
+    def _on_google_auth_error(self, msg: str):
+        self._google_worker = None
+        self._google_auth_btn.setEnabled(True)
+        self._google_status.setText(f"✕ {msg[:60]}")
+        self._google_status.setStyleSheet("color:#FF3B30; font-size:11px; font-weight:600;")
 
     def _refresh_google_status(self):
-        if GOOGLE_TOKEN.exists():
+        if GOOGLE_TOKEN.exists() or LEGACY_GOOGLE_TOKEN.exists():
             self._google_status.setText("✓ Connected")
             self._google_status.setStyleSheet("color:#34C759; font-size:11px; font-weight:600;")
         else:
@@ -595,10 +629,12 @@ class SetupWizard(QDialog):
         self._notify_id = _input("Optional — paste Lark group chat_id")
         self._notify_id.setText(self.config.get("lark_notify_chat_id", ""))
         layout.addWidget(self._notify_id)
-        layout.addWidget(_label(
-            "Run find_chat_id.py to get the chat_id for your group.",
+        chat_help = _label(
+            f'<a href="{LARK_CHAT_ID_HELP}">How to find the group chat ID</a>',
             size=10, color="#999"
-        ))
+        )
+        chat_help.setOpenExternalLinks(True)
+        layout.addWidget(chat_help)
 
         layout.addStretch()
 
@@ -699,6 +735,22 @@ class SetupWizard(QDialog):
         self._stack.setCurrentIndex(idx)
 
     def _finish(self):
+        if not self.config.is_fully_configured():
+            missing = []
+            if not self.config.is_lark_configured():
+                missing.append("Lark (App ID, App Secret and authorization)")
+            if not self.config.is_google_configured():
+                missing.append("Google Drive (credentials.json and authorization)")
+            answer = QMessageBox.question(
+                self, "Setup incomplete",
+                "These are not connected yet:\n\n  • " + "\n  • ".join(missing) +
+                "\n\nLarkSync cannot sync until they are. Finish anyway?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        self.config.set("schedule_anchor", datetime.now().isoformat())   # first slot = next scheduled time
         self.config.mark_setup_complete()
         self.accept()
 

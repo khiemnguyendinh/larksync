@@ -2,7 +2,7 @@
 
 from pathlib import Path
 from PyQt6.QtCore    import Qt
-from PyQt6.QtGui     import QFont, QTextCharFormat, QColor
+from PyQt6.QtGui     import QFontDatabase, QTextCharFormat, QColor
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTextEdit,
     QPushButton, QLabel, QFileDialog, QWidget
@@ -33,7 +33,11 @@ class LogViewer(QDialog):
         # Log text area — always dark (terminal aesthetic)
         self._text = QTextEdit()
         self._text.setReadOnly(True)
-        self._text.setFont(QFont("SF Mono, Menlo, monospace", 11))
+        # A comma-separated family list isn't valid for QFont; ask Qt for the platform's
+        # monospace font (Menlo/SF Mono on macOS, Consolas on Windows).
+        mono = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+        mono.setPointSize(11)
+        self._text.setFont(mono)
         self._text.setStyleSheet(
             "background:#1e1e1e; color:#ccc; border:none;"
             "padding:10px; selection-background-color:#264F78;"
@@ -129,10 +133,12 @@ class LogViewer(QDialog):
     def _clear(self):
         path = Path(self.log_path)
         if path.exists():
-            path.write_text("")
+            path.write_text("", encoding="utf-8")
         self._text.clear()
 
     def _export(self):
+        if not Path(self.log_path).exists():
+            return
         dest, _ = QFileDialog.getSaveFileName(
             self, "Export Log", "sync.log", "Log Files (*.log);;Text Files (*.txt)"
         )

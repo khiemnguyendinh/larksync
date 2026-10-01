@@ -6,7 +6,6 @@ Dùng user_access_token (OAuth) để truy cập personal Drive của user.
 
 import time
 import requests
-from typing import Optional
 
 # Import user token manager
 from .lark_auth import get_valid_access_token
@@ -26,6 +25,12 @@ LARK_NATIVE_TYPES = set(LARK_EXPORT_MAP.keys())
 
 LARK_BASE_URL = "https://open.larksuite.com/open-apis"
 
+_RETRY_STATUS = {429, 500, 502, 503, 504}
+
+
+class FileTooLarge(Exception):
+    """A download exceeded the configured size limit (skipped, not an error)."""
+
 
 class LarkClient:
     def __init__(self, app_id: str, app_secret: str):
@@ -42,6 +47,34 @@ class LarkClient:
 
     def _headers(self) -> dict:
         return {"Authorization": f"Bearer {self.get_access_token()}"}
+
+    # ------------------------------------------------------------------
+    # HTTP with retry (429 / 5xx / dropped connections)
+    # ------------------------------------------------------------------
+
+    def _request(self, method: str, path: str, retries: int = 3, **kwargs) -> requests.Response:
+        url = f"{LARK_BASE_URL}{path}"
+        last_exc: Exception = RuntimeError("request not attempted")
+        for attempt in range(retries + 1):
+            delay = min(2 ** attempt, 20)
+            try:
+                resp = requests.request(method, url, headers=self._headers(), **kwargs)
+            except (requests.ConnectionError, requests.Timeout) as exc:
+                last_exc = exc
+            else:
+                if resp.status_code not in _RETRY_STATUS:
+                    resp.raise_for_status()
+                    return resp
+                last_exc = requests.HTTPError(
+                    f"{resp.status_code} from Lark ({path})", response=resp
+                )
+                try:
+                    delay = min(max(float(resp.headers.get("Retry-After", delay)), 1), 60)
+                except ValueError:
+                    pass
+            if attempt < retries:
+                time.sleep(delay)
+        raise last_exc
 
     # ------------------------------------------------------------------
     # File / Folder listing
@@ -63,13 +96,7 @@ class LarkClient:
             if page_token:
                 params["page_token"] = page_token
 
-            resp = requests.get(
-                f"{LARK_BASE_URL}/drive/v1/files",
-                headers=self._headers(),
-                params=params,
-                timeout=30,
-            )
-            resp.raise_for_status()
+            resp = self._request("GET", "/drive/v1/files", params=params, timeout=30)
             data = resp.json()
 
             if data.get("code") != 0:
@@ -84,22 +111,28 @@ class LarkClient:
 
         return items
 
-    def traverse(self, folder_token: str = "", path: str = "/") -> list[dict]:
+    def traverse(self, folder_token: str = "", path: str = "/", cancel_fn=None) -> list[dict]:
         """
         Traverse đệ quy toàn bộ Lark Drive.
         Trả về flat list các item với thêm field 'path' và 'parent_token'.
+        `cancel_fn` (callable → bool) lets the user abort a long traversal; the
+        items collected so far are returned.
         """
         results = []
+        if cancel_fn and cancel_fn():
+            return results
         items = self.list_folder(folder_token)
 
         for item in items:
+            if cancel_fn and cancel_fn():
+                break
             item["path"] = f"{path}{item['name']}/"
             item["parent_token"] = folder_token
 
             if item["type"] == "folder":
                 results.append(item)
                 results.extend(
-                    self.traverse(item["token"], item["path"])
+                    self.traverse(item["token"], item["path"], cancel_fn)
                 )
             else:
                 item["path"] = f"{path}{item['name']}"
@@ -121,9 +154,8 @@ class LarkClient:
             raise ValueError(f"Unsupported Lark native type: {file_type}")
 
         # Bước 1: Tạo export task
-        resp = requests.post(
-            f"{LARK_BASE_URL}/drive/v1/export_tasks",
-            headers=self._headers(),
+        resp = self._request(
+            "POST", "/drive/v1/export_tasks",
             json={
                 "file_extension": ext,
                 "token": file_token,
@@ -131,7 +163,6 @@ class LarkClient:
             },
             timeout=30,
         )
-        resp.raise_for_status()
         data = resp.json()
         if data.get("code") != 0:
             raise RuntimeError(f"Lark export task create failed: {data}")
@@ -150,13 +181,11 @@ class LarkClient:
         interval = 2
 
         while time.time() < deadline:
-            resp = requests.get(
-                f"{LARK_BASE_URL}/drive/v1/export_tasks/{ticket}",
-                headers=self._headers(),
+            resp = self._request(
+                "GET", f"/drive/v1/export_tasks/{ticket}",
                 params={"token": file_token},
                 timeout=15,
             )
-            resp.raise_for_status()
             data = resp.json()
             if data.get("code") != 0:
                 raise RuntimeError(f"Lark export task poll failed: {data}")
@@ -176,26 +205,32 @@ class LarkClient:
 
     def _download_export(self, export_file_token: str) -> bytes:
         """Download file đã export từ Lark."""
-        resp = requests.get(
-            f"{LARK_BASE_URL}/drive/v1/export_tasks/file/{export_file_token}/download",
-            headers=self._headers(),
-            timeout=120,
-            stream=True,
+        resp = self._request(
+            "GET", f"/drive/v1/export_tasks/file/{export_file_token}/download",
+            timeout=120, stream=True,
         )
-        resp.raise_for_status()
         return resp.content
 
     # ------------------------------------------------------------------
     # Regular file download
     # ------------------------------------------------------------------
 
-    def download_file(self, file_token: str) -> bytes:
-        """Download file thông thường (không phải Lark native)."""
-        resp = requests.get(
-            f"{LARK_BASE_URL}/drive/v1/files/{file_token}/download",
-            headers=self._headers(),
-            timeout=120,
-            stream=True,
+    def download_file(self, file_token: str, max_bytes: int = 0) -> bytes:
+        """
+        Download file thông thường (không phải Lark native).
+        The Lark file list carries no size, so the limit is enforced from the
+        Content-Length header before the body is read (0 = no limit).
+        """
+        resp = self._request(
+            "GET", f"/drive/v1/files/{file_token}/download",
+            timeout=120, stream=True,
         )
-        resp.raise_for_status()
+        if max_bytes > 0:
+            try:
+                length = int(resp.headers.get("Content-Length", 0))
+            except ValueError:
+                length = 0
+            if length > max_bytes:
+                resp.close()
+                raise FileTooLarge(f"{length / 1024 / 1024:.1f} MB exceeds the {max_bytes // 1024 // 1024} MB limit")
         return resp.content
