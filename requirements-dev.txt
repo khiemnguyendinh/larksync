@@ -1,0 +1,4 @@
+# Development: run the tests and the linter
+-r requirements.txt
+pytest>=8.0
+pyflakes>=3.2

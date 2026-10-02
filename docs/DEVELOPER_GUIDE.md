@@ -45,12 +45,17 @@ cd larksync
 python3 -m venv venv
 source venv/bin/activate
 
-# 3. Install all dependencies
-pip install -r requirements.txt
+# 3. Install the dependencies (runtime + test tools)
+pip install -r requirements-dev.txt
 
 # 4. Run the app in development mode
 python main.py
+
+# 5. Run the tests
+python -m pytest tests -q
 ```
+
+To build the app bundle you additionally need `requirements_macos.txt` (py2app, dmgbuild) — `bash build.sh` installs it into its own venv.
 
 ### Windows setup
 
@@ -61,9 +66,11 @@ cd larksync
 python -m venv venv
 venv\Scripts\activate
 
-pip install -r requirements_windows.txt
+pip install -r requirements_windows.txt     # runtime + PyInstaller
+pip install -r requirements-dev.txt         # + pytest / pyflakes
 
 python main.py
+python -m pytest tests -q
 ```
 
 ### IDE recommendations
@@ -81,45 +88,59 @@ larksync/
 │
 ├── app/                       # UI + application layer
 │   ├── __init__.py
-│   ├── config_manager.py      # Config R/W, launch-at-login, path constants
-│   ├── tray_app.py            # Tray icon, menu, scheduler, sync control
+│   ├── version.py             # __version__ — single source of truth
+│   ├── config_manager.py      # Config R/W (atomic), path constants, launch-at-login facade
+│   ├── autostart.py           # LaunchAgent (macOS) / Run key (Windows)
+│   ├── scheduler.py           # Pure schedule maths (catch-up, back-off)
+│   ├── platform_utils.py      # IS_MAC / IS_WIN, resource_path(), Windows AppUserModelID
+│   ├── tray_app.py            # Tray icon, menu, scheduler wiring, sync control
 │   ├── settings_dialog.py     # Tabbed settings window + _SecretField widget
 │   ├── setup_wizard.py        # First-run 4-step wizard
-│   ├── sync_thread.py         # QThread wrapper for sync engine
+│   ├── sync_thread.py         # QThread wrapper for the sync engine
+│   ├── oauth_worker.py        # QThreads for the Lark / Google browser sign-in
 │   ├── log_viewer.py          # In-app log viewer dialog
+│   ├── about_dialog.py        # Shared About dialog
 │   ├── mac_menu_bar.py        # macOS native application menu bar [macOS only]
-│   └── win_menu.py            # Windows About dialog [Windows only]
+│   └── win_menu.py            # Windows About wrapper [Windows only]
 │
 ├── sync/                      # Sync engine (no UI dependencies)
 │   ├── __init__.py
-│   ├── lark_auth.py           # Lark OAuth flows + token management
-│   ├── lark_client.py         # Lark Drive API (list, traverse, export, download)
-│   ├── google_client.py       # Google Drive API (folder, upload, overwrite)
+│   ├── paths.py               # Data folder per OS, atomic write_private(), legacy migration
+│   ├── lark_auth.py           # Lark OAuth flow + token management
+│   ├── lark_client.py         # Lark Drive API (list, traverse, export, download, retry)
+│   ├── google_client.py       # Google Drive API (folder, upload, overwrite, JSON token)
 │   ├── sync_engine.py         # Core mirror logic (traverse → upload)
 │   └── lark_notifier.py       # Post-sync Lark group chat notification
 │
-├── assets/                    # Icons and build assets
-│   ├── icon_1024.png          # Source icon (generated from user's PNG at build time)
-│   ├── icon.icns              # macOS icon bundle (generated at build time)
-│   └── dmg_background.png    # DMG window background
+├── tests/                     # pytest suite (headless Qt) — see section 12
+│
+├── installer/
+│   ├── macos/entitlements.plist   # Hardened-runtime entitlements for Developer-ID signing
+│   └── windows/LarkSync.iss       # Inno Setup per-user installer
+│
+├── assets/
+│   ├── icon.icns              # macOS icon (committed)
+│   ├── icon.png               # 512 px master used for windows / tray / --selftest
+│   └── icon.ico               # Windows icon (16–256 px, generated from icon.icns)
 │
 ├── docs/                      # Documentation
-│   ├── ARCHITECTURE.md        # System design + module reference (this project)
+│   ├── ARCHITECTURE.md        # System design + module reference
 │   ├── DEVELOPER_GUIDE.md     # This file
 │   ├── USER_GUIDE.md          # End-user guide (EN + VI)
 │   ├── TERMS_OF_USE.md        # Terms of service
-│   └── DISCLAIMER.md         # Liability disclaimer
+│   └── DISCLAIMER.md          # Liability disclaimer
 │
-├── .github/
-│   └── workflows/
-│       └── build-windows.yml  # CI: auto-build Windows .exe on push to windows branch
+├── .github/workflows/build.yml  # CI: tests (3 OSes) → macOS + Windows builds → draft release on v* tags
 │
 ├── setup.py                   # py2app config (macOS build)
 ├── build.sh                   # macOS build script (produces .app + .dmg)
-├── build_windows.py           # PyInstaller spec (Windows)
-├── build_windows.cmd          # Windows build script
-├── requirements.txt           # macOS/Linux Python dependencies
-├── requirements_windows.txt   # Windows Python dependencies
+├── build_windows.py           # PyInstaller build (Windows) — used locally and by CI
+├── build_windows.cmd          # Windows convenience wrapper
+├── requirements.txt           # Runtime dependencies
+├── requirements_macos.txt     # + py2app, dmgbuild
+├── requirements_windows.txt   # + pyinstaller
+├── requirements-dev.txt       # + pytest, pyflakes
+├── CHANGELOG.md
 └── README.md                  # Project overview
 ```
 
@@ -127,52 +148,22 @@ larksync/
 
 ## 3. Branch & Workflow Strategy
 
-### Branch layout
+`main` is the only long-lived branch. Work on a short-lived branch and open a pull request; CI (`build.yml`) runs the tests on Linux, macOS and Windows and builds both installers for every push, so a change that only works on one OS is caught before merge. (The former `macos` / `windows` branches were merged into `main`; the per-platform cherry-pick workflow is no longer needed.)
 
-```
-main ──────────────────────────────────────────────────►
-       ▲                        ▲
-       │  merge PR              │  merge PR
-macos ─┼────────────────────────┼──────────────────────►
-       │  (macOS development)   │
-windows─┼────────────────────────┼──────────────────────►
-          (Windows development + CI build)
-```
+### Where platform-specific code lives
 
-| Branch | Owner | CI |
-|---|---|---|
-| `macos` | macOS developer | Manual build with `bash build.sh` |
-| `windows` | Windows developer (Antigravity) | GitHub Actions auto-builds `.exe` on every push |
-| `main` | Both | Stable merged releases |
+| Concern | Module |
+|---|---|
+| macOS native menu bar, Dock re-open | `app/mac_menu_bar.py`, `main.py::LarkSyncApp` |
+| Launch at login | `app/autostart.py` (both OSes) |
+| Tray behaviour / icon | `app/tray_app.py` (branches on `IS_MAC`) |
+| Data folder | `sync/paths.py` |
+| macOS packaging | `setup.py`, `build.sh`, `installer/macos/` |
+| Windows packaging | `build_windows.py`, `build_windows.cmd`, `installer/windows/` |
 
-### Feature development workflow
+Everything else is shared. Prefer `from app.platform_utils import IS_MAC, IS_WIN` over `sys.platform` checks scattered around — the flags can be monkeypatched, which is how the tests cover both code paths on one machine.
 
-1. Work on the relevant platform branch (`macos` or `windows`)
-2. If a change applies to **both platforms** (e.g., shared logic in `sync/` or `app/config_manager.py`), cherry-pick the commit to the other branch:
-   ```bash
-   git checkout macos
-   git cherry-pick <commit-hash-from-windows>
-   git push origin macos
-   ```
-3. When a feature is complete and tested on both platforms, open a PR to merge into `main`.
-
-### Cross-platform shared modules
-
-Changes to these modules must be tested on **both platforms** and cherry-picked:
-- `sync/` (entire package)
-- `app/config_manager.py`
-- `app/sync_thread.py`
-- `app/settings_dialog.py` (UI shared between platforms)
-- `app/setup_wizard.py`
-- `app/log_viewer.py`
-- `main.py`
-
-Changes to these modules are **platform-exclusive**:
-- `app/mac_menu_bar.py` — macOS only
-- `app/win_menu.py` — Windows only
-- `build.sh`, `setup.py` — macOS build only
-- `build_windows.py`, `build_windows.cmd` — Windows build only
-- `.github/workflows/` — CI/CD
+> **You cannot fully test a tray app headlessly.** The suite verifies logic and wiring for both platforms, and CI proves the bundles build and pass `--selftest`, but look at the real tray/menu bar on a real Mac and a real Windows PC before a release (checklist in section 9).
 
 ---
 
@@ -186,11 +177,11 @@ On first run, the Setup Wizard appears. After completing it, the tray icon appea
 
 ### Skipping the wizard during development
 
-If you've already completed setup once, the config is saved in `~/Documents/lark_gdrive_sync/app_config.json`. To force the wizard to appear again:
+If you've already completed setup once, the config is saved in the data folder (`~/Library/Application Support/LarkSync/app_config.json` on macOS, `%APPDATA%\LarkSync\app_config.json` on Windows). Point the app at a scratch folder with `LARKSYNC_HOME` to develop without touching your real data. To force the wizard to appear again:
 
 ```bash
 # Method 1: Delete the config file
-rm ~/Documents/lark_gdrive_sync/app_config.json
+rm ~/Library/Application\ Support/LarkSync/app_config.json
 
 # Method 2: Set first_run to true in the JSON
 # Edit app_config.json and set "first_run": true
@@ -208,14 +199,14 @@ find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 ### Viewing the sync log
 
 ```bash
-tail -f ~/Documents/lark_gdrive_sync/sync.log
+tail -f ~/Library/Application\ Support/LarkSync/sync.log     # Windows: Get-Content $env:APPDATA\LarkSync\sync.log -Wait
 ```
 
 ### Resetting all state (full clean slate)
 
 ```bash
-rm -rf ~/Documents/lark_gdrive_sync/
-rm -f ~/.larksync.lock
+rm -rf ~/Library/Application\ Support/LarkSync/     # Windows: rmdir /s /q %APPDATA%\LarkSync
+# (v1.0.x data, if you still have it: ~/Documents/lark_gdrive_sync — it is copied over once, then left alone)
 ```
 
 ---
@@ -297,16 +288,25 @@ def _ts(val):
 
 If a timestamp is missing or zero, the file is synced anyway (safe default).
 
-### 5.6 Lock file protocol
+### 5.6 Lock protocol
 
-`~/.larksync.lock` contains the PID of the running sync. On acquisition:
-1. Check if file exists
-2. If yes, read PID and call `os.kill(pid, 0)` — raises `ProcessLookupError` if dead
-3. If dead (stale) → remove lock and proceed
-4. Write own PID
-5. `finally` block always removes the lock
+Two `QLockFile`s in the data folder (`QLockFile` stores the owner's PID and treats the lock as stale as soon as that process is gone, on every OS):
 
-This handles crashes gracefully — stale locks are automatically cleaned.
+- `instance.lock` — held by `main.py` for the lifetime of the app (single instance)
+- `sync.lock` — held by `SyncThread` while a sync runs
+
+Never call `os.kill(pid, 0)` to test whether a process is alive: on Windows `os.kill` with any signal other than `CTRL_C_EVENT` / `CTRL_BREAK_EVENT` calls `TerminateProcess` — v1.0.x's single-instance check killed the running copy (and could kill an unrelated process that had reused the PID).
+
+### 5.7 Never block the UI thread, never touch Qt from a plain thread
+
+- Browser sign-ins (`authorize()`, `run_local_server`) block for minutes → use `app/oauth_worker.py` (QThreads + signals).
+- `QTimer.singleShot(0, fn)` from a `threading.Thread` does **not** run `fn` (that thread has no event loop). Use a signal from a `QThread`.
+- A `QThread` object must outlive its thread. Keep a reference until `finished`, and don't start a new one while `isRunning()`.
+- Don't shadow Qt's built-in signals (`QThread.finished`); `SyncThread` uses `completed`.
+
+### 5.8 Writing files that contain secrets
+
+Use `sync.paths.write_private()` (atomic, `0600`) for anything holding the App Secret or tokens, and open credentials files with `encoding="utf-8"` (the Windows default code page can't read them).
 
 ---
 
@@ -420,72 +420,80 @@ Use `_c(light_value, dark_value)` helper in `settings_dialog.py` to pick the cor
 
 Qt automatically maps `Ctrl` → `⌘` on macOS. `"Ctrl+,"` becomes `⌘,` in the menu.
 
-**`LSUIElement = True` in `setup.py`:**
+**`LSUIElement = False` in `setup.py`:**
 
-This hides LarkSync from the Dock. Without it, a Dock icon appears even though the app is a menu-bar utility.
+LarkSync deliberately shows a Dock icon and the native menu bar (File / Help), plus the menu-bar extra. Clicking the Dock icon re-opens Settings (`LarkSyncApp.event`). Setting it to `True` would make it a pure menu-bar utility with no Dock icon and no native menu bar.
+
+**Hardened runtime / notarization (untested here):** `build.sh` supports `CODESIGN_IDENTITY` and `NOTARY_PROFILE`; the entitlements live in `installer/macos/entitlements.plist`. Without a Developer-ID certificate the build is ad-hoc signed (required to run on Apple Silicon) and users must right-click → Open on first launch.
+
+**Architecture:** `lipo -archs dist/LarkSync.app/Contents/MacOS/LarkSync` tells you what you built. CI builds on an Apple-Silicon runner (`macos-14`) with the universal2 Python from `actions/setup-python`; the first CI run reported `x86_64 arm64` for the launcher. The `--selftest` only ever runs on Apple Silicon, so Intel is unverified — test on an Intel Mac before advertising it.
+
+**Data folder:** `~/Library/Application Support/LarkSync` (not `~/Documents`, which iCloud may sync).
 
 ### Windows
 
-**Tray icon `.png` vs `.ico`:**
+**Icons:** the exe icon is `assets/icon.ico` (multi-size, regenerate with Pillow from `assets/icon.icns`/`icon.png` if the artwork changes); windows and the tray use `assets/icon.png`. The tray glyph is drawn in code in brand blue/orange because a black "template" icon is invisible on the default dark taskbar.
 
-PyInstaller needs a `.ico` file for the app icon. The `build_windows.py` script converts the PNG. Make sure any icon change is also applied to the Windows build.
+**No native menu bar on Windows:** `build_menu_bar()` is macOS-only. Everything is reached through the tray menu: **right-click** shows it (`QSystemTrayIcon.setContextMenu`), **left-click / double-click** opens Settings. Don't call `QMenu.popup()` for tray menus on Windows — the menu then doesn't close when you click elsewhere.
 
-**No native menu bar on Windows:**
+**Taskbar / toast identity:** `set_windows_app_id()` sets an AppUserModelID so notifications read "LarkSync".
 
-`build_menu_bar()` returns `None` on Windows. The macOS `File` and `Help` menus don't exist. All access to Settings is through the tray icon's context menu.
+**`--windowed` has no stdout/stderr:** `sys.stderr` is `None`; don't add a `StreamHandler` blindly and don't `print()`.
 
-**`QSystemTrayIcon.ActivationReason`:**
+**Registry launch-at-login:** `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` — no elevation needed. From source it launches `pythonw.exe main.py`; the installer's "start when I sign in" task writes the same value and the uninstaller removes it.
 
-On Windows, right-click shows the context menu automatically. The `Trigger` reason fires on left-click and is used to manually show the popup. This is the same code path as macOS.
+**OAuth callback port:** Lark's redirect URL is fixed to `http://localhost:8080/callback`. The loopback server deliberately does not set `SO_REUSEADDR` on Windows (it would let a second program share the port and hide conflicts).
 
-**Registry launch-at-login:**
-
-Tested path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. Does NOT require elevation.
+**SmartScreen:** builds are unsigned. For a signed build use `signtool` (or Azure Trusted Signing) on `LarkSync.exe` before running Inno Setup, and on the installer afterwards.
 
 ---
 
 ## 9. Building a Release
 
-### macOS release
+### macOS (`bash build.sh`)
 
 ```bash
-# Ensure you're on the macos branch
-git checkout macos
-
-# Place the 1024×1024 app icon on your Desktop as "larksync icon.png"
-# (the build script reads from ~/Desktop/larksync icon.png)
-
-# Run the build
 bash build.sh
-
 # Outputs:
-#   dist/LarkSync.app    (the app bundle)
-#   dist/LarkSync.dmg    (the installer, ~80 MB)
+#   dist/LarkSync.app    (the app bundle, self-tested and signed)
+#   dist/LarkSync.dmg    (the installer)
+
+# Distributable build (needs an Apple Developer ID):
+CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+NOTARY_PROFILE=my-notary-profile bash build.sh
 ```
 
-**Uploading a GitHub release:**
+The script uses the committed `assets/icon.icns` (set `ICON_SRC=/path/to/1024.png` to regenerate it), runs `LarkSync --selftest` on the finished bundle and fails the build if anything is missing.
 
-GitHub's web UI supports files up to 2 GB. Use the Releases page to attach the `.dmg`.
+### Windows
 
-> The GitHub CLI (`gh release create`) requires `gh auth login` first.
+```powershell
+python build_windows.py                      # dist\LarkSync\ + ...-Windows.zip AND dist\LarkSync-<version>-Portable.exe
+python build_windows.py --onefile            # only the portable single file (--onedir: only the folder)
+dist\LarkSync\LarkSync.exe --selftest        # exit code 0 = OK, details in %APPDATA%\LarkSync\selftest.txt
+iscc /DMyAppVersion=1.1.0 installer\windows\LarkSync.iss     # dist\LarkSync-Setup-1.1.0.exe
+```
 
-### Windows release (GitHub Actions)
+### Through CI (recommended)
 
-1. Push to the `windows` branch
-2. GitHub Actions builds automatically
-3. Artifacts are available on the Actions page under the workflow run
-4. Download `LarkSync-Windows.zip` → contains `LarkSync.exe` and all dependencies
+Every push builds both platforms (see `.github/workflows/build.yml`); download the artifacts from the run. Pushing a tag `vX.Y.Z` also creates a **draft** GitHub release with the `.dmg`, the Setup `.exe` and the `.zip`.
 
 ### Version bumping
 
-Version numbers appear in:
-- `build.sh`: `VERSION="1.0.0"`
-- `setup.py`: `version="1.0.0"`
-- `app/mac_menu_bar.py`: in `CREDIT_TEXT`
-- `app/win_menu.py`: in the About dialog
-- GitHub release tag: `v1.0.0`
+Edit **one** place: `app/version.py` (`__version__`). `setup.py`, `build.sh`, `build_windows.py`, the Inno script (via `/DMyAppVersion`), the About dialog and the tray menu title all read it. Add a `CHANGELOG.md` entry, then tag `vX.Y.Z`.
 
-Update all four locations before tagging a release.
+### Pre-release checklist (needs real machines)
+
+CI cannot see a real menu bar or taskbar. On a Mac **and** a Windows PC:
+
+- [ ] Fresh install, run the Setup Wizard end to end (Lark + Google sign-in, window stays responsive)
+- [ ] Tray/menu-bar icon visible in light **and** dark mode; menu opens/closes correctly
+- [ ] Windows: right-click shows the menu, left-click opens Settings
+- [ ] macOS: Dock-click re-opens Settings; ⌘R / ⌘, / ⌘Q work
+- [ ] Sync Now → Cancel Sync → "Cancelling…" → cancelled notification; then a full sync
+- [ ] Settings → Launch at Login on, log out/in, app starts (once); off removes it
+- [ ] Upgrade from a v1.0.x profile: data migrated, schedule still works
+- [ ] Quit during a sync does not crash
 
 ---
 
@@ -524,20 +532,27 @@ dlg = SomeDialog(tray_app)                         # wrong if tray_app is QObjec
 
 ### py2app Python version
 
-`py2app` bundles **whatever Python is invoked by `python3`** on your system. If you're using a venv with Python 3.13 but `python3` on PATH points to 3.9 (common on older Macs), the bundle will contain 3.9 — which may not support newer syntax.
+`py2app` bundles **whatever Python is invoked by `python3`** on your system. `build.sh` creates `.build-venv` from the `python3` on your PATH (3.11+ recommended), so check `python3 --version` first.
 
-**Fix:** Always run `bash build.sh` from within a venv that uses the exact Python version you intend to bundle.
+### py2app options must go through `options=`
+
+`setup(options={"py2app": {...}})` is correct; `setup(py2app={...})` is silently ignored by setuptools (v1.0.x shipped like that: no plist keys, icon, resources or excludes). If a bundle ignores your `setup.py`, check this first, then run `bash build.sh` — its self-test fails the build when an import or data file is missing.
+
+### Don't delete `googleapiclient/discovery_cache`
+
+`googleapiclient.discovery.build()` imports that package at runtime. Delete only the (huge) `documents/` JSON files except `drive.v3.json`, as `build.sh` / `build_windows.py` do. `--selftest` fails the build if this goes wrong.
 
 ### Lock file from crash
 
-If the app crashes mid-sync, `~/.larksync.lock` may remain. The next launch detects the stale lock (dead PID) and removes it automatically. If for some reason this doesn't work:
-```bash
-rm ~/.larksync.lock
-```
+If the app crashes, `instance.lock` / `sync.lock` may remain in the data folder. `QLockFile` detects that the owner process is gone and takes the lock over, so nothing needs deleting. If you ever have to: remove `instance.lock` and `sync.lock` from the data folder.
 
 ### Google OAuth token pickle incompatibility
 
-`google_token.pkl` is a Python pickle. If you change Python minor versions significantly, the pickle may fail to deserialize. Solution: delete `google_token.pkl` and re-authenticate via Settings → Google Drive → Re-authorize Google.
+v1.0.x stored `google_token.pkl` (a pickle, which breaks across Python upgrades). v1.1 stores `google_token.json` and migrates the pickle automatically; if a legacy pickle can't be read, the user is simply asked to re-authorize.
+
+### Google sign-in expires every 7 days
+
+An OAuth consent screen in **Testing** status expires refresh tokens after 7 days. The app reports `GoogleAuthRequired` ("Re-authorize Google"); publish the OAuth app to *In production* to avoid it.
 
 ---
 
@@ -565,7 +580,7 @@ rm ~/.larksync.lock
 - All UI construction happens in `__init__` or dedicated `_build_*()` methods
 - Signals are connected **after** all widgets are built (avoids callbacks on partially initialized state)
 - Widget factory functions (`_input()`, `_combo()`, `_label()`) are module-level utilities — keep them pure (no side effects)
-- Platform-specific code is guarded with `if sys.platform == "darwin":` / `"win32"`
+- Platform-specific code is guarded with `IS_MAC` / `IS_WIN` from `app/platform_utils.py` (they wrap `sys.platform` and can be monkeypatched in tests)
 
 ### Logging
 
@@ -600,3 +615,30 @@ Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 Types: `feat`, `fix`, `refactor`, `docs`, `chore`, `build`
 
 Example: `fix: normalize Lark timestamps to float before comparison`
+
+---
+
+## 12. Testing
+
+```bash
+python -m pytest tests -q          # ~120 tests, ~4 s, no network, no display needed
+python -m pyflakes main.py app sync tests
+```
+
+`tests/conftest.py` points `LARKSYNC_HOME` at a temp folder **before** any LarkSync module is imported (paths are resolved at import time), empties it between tests and runs Qt with `QT_QPA_PLATFORM=offscreen`.
+
+| File | Covers |
+|---|---|
+| `test_scheduler.py` | catch-up after a missed slot, re-arming, retry back-off, invalid values |
+| `test_paths_config.py` | atomic/private writes, legacy-folder migration, per-OS data folder, corrupt config |
+| `test_autostart.py` | LaunchAgent plist, Windows Run value / launch commands, enable/disable, the Settings regression |
+| `test_sync_engine.py` | conflict skip/overwrite, incremental filter, errors, size limit, shortcuts, cancel + state save, `.url` files |
+| `test_lark.py` | retry/back-off, pagination, cancellable traverse, download limit, the OAuth loopback flow (success, forged `state`, timeout frees the port, cancel, port in use), token refresh errors |
+| `test_google.py` | overwrite → create fallback, `'root'` anchoring, JSON token + pickle migration, expired token → `GoogleAuthRequired`, no browser in background syncs |
+| `test_sync_thread.py` | which marker moves for clean / errors / fatal / cancelled runs, lock contention, signal count |
+| `test_tray.py` | Windows context menu + click handling, macOS toggle, icons, cancel state machine, scheduler wiring |
+| `test_dialogs.py` | Save vs Sync Now, background sign-in, wizard validation, finish confirmation, OAuth workers |
+| `test_platform_real.py` | real registry / LaunchAgent round-trips (each runs only on its own OS, in CI) |
+
+The sync tests use fakes (`FakeLark`, `FakeDrive`); nothing talks to Lark or Google. When you fix a bug, add the regression test next to the code it covers — most of the tests above are named after a v1.0.x bug.
+

@@ -4,20 +4,11 @@ Creates the File / Help menu bar that appears at the top of the screen.
 Also handles dock-icon activation to re-open Settings.
 """
 
-from PyQt6.QtCore    import Qt, QUrl
+from PyQt6.QtCore    import QUrl
 from PyQt6.QtGui     import QAction, QDesktopServices, QKeySequence
-from PyQt6.QtWidgets import QMenuBar, QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout
+from PyQt6.QtWidgets import QMenuBar
 
-CREDIT_TEXT = (
-    "LarkSync\n\n"
-    "Sync Lark Drive → Google Drive automatically.\n\n"
-    "Developed by:\n"
-    "Khiem Nguyen Dinh\n"
-    "Kstudy Academy\n"
-    "www.kstudy.edu.vn\n"
-    "khiem@kstudy.edu.vn\n\n"
-    "© 2026 Kstudy Academy. All rights reserved."
-)
+from app.about_dialog import show_about
 
 HELP_LINKS = [
     (
@@ -45,6 +36,18 @@ def build_menu_bar(config, tray_app) -> QMenuBar:
     # ── File ──────────────────────────────────────────────────────────
     file_menu = bar.addMenu("File")
 
+    sync_act = QAction("Sync Now", bar)
+    sync_act.setShortcut(QKeySequence("Ctrl+R"))          # ⌘R
+    sync_act.triggered.connect(tray_app._start_sync)
+    file_menu.addAction(sync_act)
+
+    log_act = QAction("View Log…", bar)
+    log_act.setShortcut(QKeySequence("Ctrl+L"))           # ⌘L
+    log_act.triggered.connect(tray_app._open_log)
+    file_menu.addAction(log_act)
+
+    file_menu.addSeparator()
+
     settings_act = QAction("Settings…", bar)
     settings_act.setShortcut(QKeySequence("Ctrl+,"))
     settings_act.triggered.connect(lambda: _open_settings(config, tray_app))
@@ -68,7 +71,7 @@ def build_menu_bar(config, tray_app) -> QMenuBar:
     help_menu.addSeparator()
 
     about_act = QAction("About LarkSync", bar)
-    about_act.triggered.connect(lambda: _show_about())
+    about_act.triggered.connect(lambda: show_about())
     help_menu.addAction(about_act)
 
     return bar
@@ -77,42 +80,3 @@ def build_menu_bar(config, tray_app) -> QMenuBar:
 def _open_settings(config, tray_app):
     # Delegate to tray_app so the singleton guard is enforced
     tray_app._open_settings()
-
-
-def _show_about():
-    dlg = QDialog()
-    dlg.setWindowTitle("About LarkSync")
-    dlg.setFixedSize(340, 280)
-    dlg.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
-
-    layout = QVBoxLayout(dlg)
-    layout.setContentsMargins(24, 20, 24, 16)
-    layout.setSpacing(12)
-
-    lbl = QLabel(CREDIT_TEXT)
-    lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    lbl.setWordWrap(True)
-    lbl.setStyleSheet("font-size: 12px; line-height: 1.5;")
-    layout.addWidget(lbl)
-
-    link = QLabel('<a href="https://www.kstudy.edu.vn">www.kstudy.edu.vn</a>')
-    link.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    link.setOpenExternalLinks(True)
-    link.setStyleSheet("font-size: 11px; color: #007AFF;")
-    layout.addWidget(link)
-
-    layout.addStretch()
-
-    btn = QPushButton("OK")
-    btn.setFixedWidth(80)
-    btn.setStyleSheet(
-        "background:#007AFF; color:white; border:none;"
-        "border-radius:7px; padding:6px 16px; font-size:12px; font-weight:600;"
-    )
-    btn.clicked.connect(dlg.accept)
-    row = QHBoxLayout()
-    row.addStretch()
-    row.addWidget(btn)
-    layout.addLayout(row)
-
-    dlg.exec()

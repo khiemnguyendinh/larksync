@@ -4,20 +4,31 @@ Tabbed settings panel accessible from the tray menu.
 Tabs: General | Larksuite | Google Drive | Notifications
 """
 
-from PyQt6.QtCore    import Qt
+from datetime import datetime
+from pathlib import Path
+import json
+import logging
+import shutil
+
+from PyQt6.QtCore    import Qt, QTimer
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QComboBox, QTabWidget, QWidget, QCheckBox,
-    QFrame, QFileDialog, QSizePolicy, QScrollArea
+    QFrame, QFileDialog
 )
-from pathlib import Path
-import shutil
 
 from app.config_manager import (
     ConfigManager, APP_DIR, GOOGLE_CREDS, LARK_TOKEN, GOOGLE_TOKEN
 )
+from app import autostart
+from app.oauth_worker import LarkAuthWorker, GoogleAuthWorker
+from app.version import __version__
 
-FOOTER_TEXT = "© 2026 Khiem Nguyen Dinh · Kstudy Academy · www.kstudy.edu.vn"
+FOOTER_TEXT = f"LarkSync {__version__} · © 2026 Khiem Nguyen Dinh · Kstudy Academy · www.kstudy.edu.vn"
+LARK_CHAT_ID_HELP = (
+    "https://open.larksuite.com/document/client-docs/bot-5/"
+    "add-a-bot-to-a-group-and-get-the-group-id"
+)
 DAYS  = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
 HOURS = [f"{h:02d}:00 {'AM' if h < 12 else 'PM'}" for h in range(24)]
 
@@ -268,11 +279,17 @@ class SettingsDialog(QDialog):
         self._cancel_btn.setEnabled(False)
         self._set_cancel_dimmed(True)
 
+        # v1.0.x could only save settings by pressing "Sync Now" (which also starts a sync).
+        self._save_btn = self._make_btn("Save", primary=False)
+        self._save_btn.clicked.connect(self._on_save_clicked)
+
         self._sync_btn = self._make_btn("Sync Now", primary=True)
         self._sync_btn.clicked.connect(self._on_sync_btn_clicked)
 
         btn_row.addStretch()
         btn_row.addWidget(self._cancel_btn)
+        btn_row.addSpacing(4)
+        btn_row.addWidget(self._save_btn)
         btn_row.addSpacing(4)
         btn_row.addWidget(self._sync_btn)
         btn_layout.addLayout(btn_row)
@@ -463,39 +480,59 @@ class SettingsDialog(QDialog):
             "✓ Connected" if LARK_TOKEN.exists() else "⬤ Not connected",
             color="#34C759" if LARK_TOKEN.exists() else "#999", size=12
         )
-        re_auth = self._make_btn("Re-authorize Lark")
-        re_auth.clicked.connect(self._reauth_lark)
+        self._lark_reauth_btn = self._make_btn("Re-authorize Lark")
+        self._lark_reauth_btn.clicked.connect(self._reauth_lark)
         status_row.addWidget(self._lark_status)
         status_row.addStretch()
-        status_row.addWidget(re_auth)
+        status_row.addWidget(self._lark_reauth_btn)
         layout.addLayout(status_row)
         layout.addStretch()
         return w
+
+    def _set_status(self, label: QLabel, text: str, color: str, bold: bool = False):
+        label.setText(text)
+        label.setStyleSheet(
+            f"color: {color}; font-size: 12px;{' font-weight: 600;' if bold else ''}"
+            "background: transparent; border: none;"
+        )
 
     def _reauth_lark(self):
         app_id = self._lark_id_edit.text().strip()
         secret = self._lark_sec_edit.text().strip()
         if not app_id or not secret:
-            self._lark_status.setText("⚠ Enter App ID and Secret first")
-            self._lark_status.setStyleSheet(
-                "color: #FF9500; font-size: 12px; background: transparent; border: none;"
-            )
+            self._set_status(self._lark_status, "⚠ Enter App ID and Secret first", "#FF9500")
             return
+        if getattr(self, "_lark_worker", None) is not None:
+            return                                   # already waiting for the browser
         self.config.update({"lark_app_id": app_id, "lark_app_secret": secret})
-        try:
-            from sync.lark_auth import authorize
-            authorize()
-            self._lark_status.setText("✓ Connected")
-            self._lark_status.setStyleSheet(
-                "color: #34C759; font-size: 12px; font-weight: 600;"
-                "background: transparent; border: none;"
-            )
-        except Exception as e:
-            self._lark_status.setText(f"✕ {str(e)[:50]}")
-            self._lark_status.setStyleSheet(
-                "color: #FF3B30; font-size: 12px;"
-                "background: transparent; border: none;"
-            )
+
+        # Runs on a worker thread: the old code blocked this window for up to 2 minutes.
+        self._set_status(self._lark_status, "⏳ Waiting for browser…", "#888888")
+        self._lark_reauth_btn.setEnabled(False)
+        worker = LarkAuthWorker()
+        worker.succeeded.connect(self._on_lark_auth_ok)
+        worker.failed.connect(self._on_lark_auth_failed)
+        self._lark_worker = worker
+        worker.start()
+
+    def _lark_auth_done(self):
+        self._lark_worker = None
+        self._lark_reauth_btn.setEnabled(True)
+
+    def _on_lark_auth_ok(self):
+        self._lark_auth_done()
+        self._set_status(self._lark_status, "✓ Connected", "#34C759", bold=True)
+
+    def _on_lark_auth_failed(self, msg: str):
+        self._lark_auth_done()
+        self._set_status(self._lark_status, f"✕ {msg[:60]}", "#FF3B30")
+
+    def reject(self):
+        # Closing the dialog while the browser sign-in is pending releases the callback port.
+        worker = getattr(self, "_lark_worker", None)
+        if worker is not None:
+            worker.cancel()
+        super().reject()
 
     # ── Google Drive tab ──────────────────────────────────────────────
 
@@ -546,11 +583,11 @@ class SettingsDialog(QDialog):
             "✓ Connected" if GOOGLE_TOKEN.exists() else "⬤ Not connected",
             color="#34C759" if GOOGLE_TOKEN.exists() else "#999", size=12
         )
-        re_auth = self._make_btn("Re-authorize Google")
-        re_auth.clicked.connect(self._reauth_google)
+        self._google_reauth_btn = self._make_btn("Re-authorize Google")
+        self._google_reauth_btn.clicked.connect(self._reauth_google)
         status_row.addWidget(self._google_status)
         status_row.addStretch()
-        status_row.addWidget(re_auth)
+        status_row.addWidget(self._google_reauth_btn)
         layout.addLayout(status_row)
         layout.addStretch()
         return w
@@ -560,18 +597,14 @@ class SettingsDialog(QDialog):
             self, "Select credentials.json", str(Path.home()), "JSON Files (*.json)"
         )
         if not path: return
-        import json
         try:
-            with open(path) as f:
+            # utf-8 explicitly: the Windows default code page can't read non-ASCII project names
+            with open(path, encoding="utf-8") as f:
                 data = json.load(f)
             if "installed" not in data and "web" not in data:
                 raise ValueError()
         except Exception:
-            self._google_status.setText("✕ Invalid credentials.json")
-            self._google_status.setStyleSheet(
-                "color: #FF3B30; font-size: 12px;"
-                "background: transparent; border: none;"
-            )
+            self._set_status(self._google_status, "✕ Invalid credentials.json", "#FF3B30")
             return
         APP_DIR.mkdir(parents=True, exist_ok=True)
         shutil.copy(path, GOOGLE_CREDS)
@@ -584,26 +617,28 @@ class SettingsDialog(QDialog):
 
     def _reauth_google(self):
         if not GOOGLE_CREDS.exists():
-            self._google_status.setText("⚠ Select credentials.json first")
-            self._google_status.setStyleSheet(
-                "color: #FF9500; font-size: 12px;"
-                "background: transparent; border: none;"
-            )
+            self._set_status(self._google_status, "⚠ Select credentials.json first", "#FF9500")
             return
-        try:
-            from sync.google_client import GoogleDriveClient
-            GoogleDriveClient(str(GOOGLE_CREDS), str(GOOGLE_TOKEN)).get_service()
-            self._google_status.setText("✓ Connected")
-            self._google_status.setStyleSheet(
-                "color: #34C759; font-size: 12px; font-weight: 600;"
-                "background: transparent; border: none;"
-            )
-        except Exception as e:
-            self._google_status.setText(f"✕ {str(e)[:50]}")
-            self._google_status.setStyleSheet(
-                "color: #FF3B30; font-size: 12px;"
-                "background: transparent; border: none;"
-            )
+        if getattr(self, "_google_worker", None) is not None:
+            return
+        # Worker thread: the Google sign-in blocks until the browser flow is finished.
+        self._set_status(self._google_status, "⏳ Waiting for browser…", "#888888")
+        self._google_reauth_btn.setEnabled(False)
+        worker = GoogleAuthWorker(str(GOOGLE_CREDS), str(GOOGLE_TOKEN))
+        worker.succeeded.connect(self._on_google_auth_ok)
+        worker.failed.connect(self._on_google_auth_failed)
+        self._google_worker = worker
+        worker.start()
+
+    def _on_google_auth_ok(self):
+        self._google_worker = None
+        self._google_reauth_btn.setEnabled(True)
+        self._set_status(self._google_status, "✓ Connected", "#34C759", bold=True)
+
+    def _on_google_auth_failed(self, msg: str):
+        self._google_worker = None
+        self._google_reauth_btn.setEnabled(True)
+        self._set_status(self._google_status, f"✕ {msg[:60]}", "#FF3B30")
 
     # ── Notifications tab ─────────────────────────────────────────────
 
@@ -624,10 +659,13 @@ class SettingsDialog(QDialog):
         self._notify_edit.setText(self.config.get("lark_notify_chat_id",""))
         layout.addWidget(self._notify_edit)
 
-        layout.addWidget(_label(
-            "Run find_chat_id.py in your lark_gdrive_sync folder to find this ID.",
+        help_lbl = _label(
+            f'Add the bot to the group, then <a href="{LARK_CHAT_ID_HELP}">'
+            "find the group's chat ID</a> (starts with oc_).",
             color="#999", size=10
-        ))
+        )
+        help_lbl.setOpenExternalLinks(True)
+        layout.addWidget(help_lbl)
         layout.addStretch()
         return w
 
@@ -649,17 +687,38 @@ class SettingsDialog(QDialog):
         }
 
     def _apply_updates(self, updates: dict):
+        # Compare with the value *before* saving (v1.0.x compared after, so the
+        # OS login item was never created or removed from Settings).
+        was_login = bool(self.config.get("launch_at_login", False))
+        old_schedule = tuple(self.config.get(k) for k in ("schedule", "schedule_day", "schedule_hour"))
+
         self.config.update(updates)
-        if updates["launch_at_login"] != self.config.get("launch_at_login"):
-            self.config.set_launch_at_login(updates["launch_at_login"])
+
+        new_schedule = tuple(updates[k] for k in ("schedule", "schedule_day", "schedule_hour"))
+        if new_schedule != old_schedule:
+            # Re-arm the schedule so an overdue slot doesn't fire the moment you save.
+            self.config.set("schedule_anchor", datetime.now().isoformat())
+
+        if updates["launch_at_login"] != was_login:
+            if not self.config.set_launch_at_login(updates["launch_at_login"]):
+                # The OS refused: show (and store) what is really in effect.
+                actual = autostart.is_enabled()
+                self.config.set("launch_at_login", actual)
+                self._launch_cb.setChecked(actual)
+                self._status_lbl.setText("⚠  Couldn't change the login item")
+
+    def _on_save_clicked(self):
+        self._apply_updates(self._collect_updates())
+        self.accept()
 
     def _on_sync_btn_clicked(self):
-        # If currently syncing → cancel
+        # If currently syncing → cancel (stay busy until the worker really stops)
         if self._sync_btn.text() == "Cancel Sync":
             if self._tray_app and hasattr(self._tray_app, '_cancel_sync'):
                 self._tray_app._cancel_sync()
-            self._restore_sync_btn()
-            self._status_lbl.setText("")
+            self._sync_btn.setText("Cancelling…")
+            self._sync_btn.setEnabled(False)
+            self._status_lbl.setText("⏳  Cancelling…")
             return
 
         # Save config
@@ -687,21 +746,29 @@ class SettingsDialog(QDialog):
                 self._tray_app._start_sync()
                 self._watch_sync_done()
             except Exception as e:
-                import logging
                 logging.error(f"Failed to start sync: {e}")
-                self._restore_sync_btn()
+                self._restore_sync_btn("✕  Could not start the sync")
 
     def _watch_sync_done(self):
-        from PyQt6.QtCore import QTimer
         def _check():
             if not self._tray_app or not getattr(self._tray_app, '_syncing', False):
-                self._restore_sync_btn()
+                stats = self.config.get("last_sync_stats") or {}
+                if stats.get("fatal_error"):
+                    msg = f"✕  {str(stats['fatal_error'])[:60]}"
+                elif stats.get("cancelled"):
+                    msg = "Sync cancelled"
+                elif stats.get("errors"):
+                    msg = f"⚠  Finished with {stats['errors']} error(s) — see the log"
+                else:
+                    msg = "✓  Sync complete"
+                self._restore_sync_btn(msg)
             else:
                 QTimer.singleShot(1000, _check)
         QTimer.singleShot(1000, _check)
 
-    def _restore_sync_btn(self):
+    def _restore_sync_btn(self, message: str = "✓  Sync complete"):
         self._sync_btn.setText("Sync Now")
+        self._sync_btn.setEnabled(True)
         self._sync_btn.setStyleSheet("""
             QPushButton {
                 background: #007AFF; color: white; border: none;
@@ -711,7 +778,7 @@ class SettingsDialog(QDialog):
             QPushButton:hover  { background: #0066DD; }
             QPushButton:pressed { background: #0055CC; }
         """)
-        self._status_lbl.setText("✓  Sync complete")
+        self._status_lbl.setText(message)
 
     # ── Footer ────────────────────────────────────────────────────────
 
